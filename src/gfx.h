@@ -21,6 +21,7 @@ void gfx_hspan(Surface *s, int y, int x0, int x1, Fill f);      /* recorta */
 void gfx_rect(Surface *s, int x0, int y0, int x1, int y1, Fill f);
 void gfx_pixel(Surface *s, int x, int y, int c);
 void gfx_line(Surface *s, s32 x0, s32 y0, s32 x1, s32 y1, int c); /* recorta */
+void gfx_line_xor_s(Surface *s, s32 x0, s32 y0, s32 x1, s32 y1, int c); /* recorta; OR exclusivo */
 void gfx_poly(Surface *s, int n, const s16 *xy, Fill f);          /* scanline */
 void gfx_ellipse(Surface *s, int cx, int cy, int rx, int ry, int c);
 void gfx_char(Surface *s, int x, int y, int ch, int c);
@@ -33,6 +34,9 @@ void gfx_copy_box(u8 *dst, const u8 *src, int x0, int y0, int x1, int y1);
 void gfx_hspan_raw(u8 *row, s32 x0, s32 x1, s32 pat);
 void gfx_line_raw(u8 *base, s32 x0, s32 y0, s32 x1, s32 y1, s32 c);
 void gfx_memcpy(u8 *dst, const u8 *src, s32 n);
+int  gfx_fill_convex(u8 *base, const s32 *p, int m, s32 f);   /* poligono convexo recortado; 0 si no es convexo */
+void gfx_text_raw(u8 *row0, s32 x, const char *t, s32 c);   /* texto 5x7 sin recorte desde la fila row0 */
+void gfx_line_xor(u8 *base, s32 x0, s32 y0, s32 x1, s32 y1, s32 c);
 
 /* patrones de relleno con tramado */
 extern const Fill fill_tab[16];

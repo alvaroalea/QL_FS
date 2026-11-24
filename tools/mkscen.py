@@ -285,15 +285,22 @@ class Scen:
                           rnd.choice((10, 15, 20, 30, 45, 70)), rnd.choice(("GRISCLARO", "BLANCO", "GRIS", "NARANJA"))))
         boxes = list(dict(((b[0], b[1]), b) for b in boxes).values())
         # agrupar en manzanas de hasta 10 edificios (80 vertices) con orden de caras
-        boxes.sort(key=lambda b: (b[1] // 600, b[0]))
-        for k in range(0, len(boxes), 10):
-            grp = boxes[k:k + 10]
-            cx = sum(b[0] for b in grp) / len(grp)
-            cy = sum(b[1] for b in grp) / len(grp)
-            o = Obj(OBJ_SOLID, cx, cy, s.elev, OF_HIT | OF_SORT, lod=40)
-            for bx, by, bw, bd, bh, fl in grp:
-                s.box(bx, by, bw, bd, bh, 0, FILLS[fl], FILLS["ROJO"], obj=o)
-            s.objs.append(o)
+        # manzanas compactas: los edificios se agrupan por celdas de 1500 m y cada celda en grupos de hasta 10 (80 vertices).
+        # Antes eran franjas de 600 m de alto y todo el ancho de la ciudad: un objeto de 3-4 km de radio que impedia descartar
+        # por esfera o por distancia y se transformaba entero aunque solo se viera una esquina.
+        cells = {}
+        for b in boxes:
+            cells.setdefault((b[1] // 1500, b[0] // 1500), []).append(b)
+        for key in sorted(cells):
+            cb = sorted(cells[key], key=lambda b: (b[1], b[0]))
+            for k in range(0, len(cb), 10):
+                grp = cb[k:k + 10]
+                cx = sum(b[0] for b in grp) / len(grp)
+                cy = sum(b[1] for b in grp) / len(grp)
+                o = Obj(OBJ_SOLID, cx, cy, s.elev, OF_HIT | OF_SORT, lod=40)
+                for bx, by, bw, bd, bh, fl in grp:
+                    s.box(bx, by, bw, bd, bh, 0, FILLS[fl], FILLS["ROJO"], obj=o)
+                s.objs.append(o)
         # calles (cuadricula) y luces
         pts, lines = [], []
         gx = int(w // 240)

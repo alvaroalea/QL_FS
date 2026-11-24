@@ -76,6 +76,10 @@ typedef u32 Fill;
 
 s32 fxmul(s32 a, s32 b);         /* (a*b)>>16 con signo, 32x32 -> 32 */
 s32 fxdiv(s32 a, s32 b);         /* (a<<16)/b aproximado, sin 64 bits */
+/* a*b/d truncado hacia cero con 16x16 (muls) y 32/16 (divs); MDQ_BIG si no cabe en esa via rapida (version
+ * en ensamblador en ql68k.s con USE_ASM_MDQ; la de C hace lo mismo) */
+#define MDQ_BIG 0x7FFFFFFFL
+s32 mdq(s32 a, s32 b, s32 d);
 s32 isqrt32(u32 v);              /* raiz entera */
 s16 isin(u16 bam);               /* Q14 */
 s16 icos(u16 bam);

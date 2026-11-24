@@ -5,20 +5,45 @@
  * U creciendo con la distancia. La perspectiva X/Z no depende de la unidad.
  */
 #include "view3d.h"
-#ifdef HOST_DEBUG
+#if defined(HOST_DEBUG) || defined(OBJ_DUMP)
 #include <stdio.h>
 #endif
 
 ViewStats vstats;
 
+#ifdef USE_ASM_XOBJ
+void xform_obj3(const s16 *m, const s16 *v, s32 *out, int cnt, int step, int vshift, int U, int rx, int ry, int rz);
+int xform_pre(const Camera *c, const Obj *o, s32 dmax, s32 *res);   /* prologo de xform_obj (ql68k.s) */
+#endif
+
+#ifdef USE_ASM_3D
+void proj_all(const s32 *v, int n, s32 near_z, int fx, int fy, s32 *out, u8 *front);
+int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy_, s32 *out, int cull);
+#endif
+
 #define MAXV   96
 #define MAXCLIP 24
 #define MAXITEMS 256
+#ifndef BEHIND_CULL
+#define BEHIND_CULL 1      /* descartar objetos detras de la camara antes de ordenarlos */
+#endif
+#ifndef SOLID_LOD
+#define SOLID_LOD 5        /* alcance de dibujo de los solidos pequenos (edificios, lod < 128) en octavos de su lod: 5/8; 8 = sin recorte */
+#endif
+#ifndef LIGHT_U0
+#define LIGHT_U0 0         /* a partir de que escala U (cada U dobla la distancia) se reducen las luces: 1 de 2, 1 de 4... */
+#endif
+#ifndef MIN_PX
+#define MIN_PX 1           /* radio proyectado minimo (pixeles) para dibujar un solido; 0 = sin descarte */
+#endif
+#ifndef TINY_PX
+#define TINY_PX 1          /* una cara cuya caja proyectada no pasa de TINY_PX pixeles no se pinta; 1 tambien en poly_fast (ql68k.s) */
+#endif
 
 static s16 rel[MAXV * 3];
 static s32 vw[MAXV * 3];
 static s32 near_z;
-static int obj_u, light_step;           /* escala del objeto actual: lejos -> sin contornos */
+static int obj_u, light_step, light_shift;           /* escala del objeto actual: lejos -> sin contornos */
 
 void attitude_matrix(u16 hdg, s16 pit, s16 bnk, s16 *m)
 {
@@ -120,17 +145,23 @@ void view_sky(Surface *s, const Camera *c)
 }
 
 /* ------------------------------------------------ utilidades de recorte */
-static int nb(s32 v)
+static int nb(s32 v)                         /* bits significativos (busqueda binaria, no bit a bit) */
 {
     int n = 0;
     if (v < 0) v = -v;
-    while (v) { v >>= 1; n++; }
-    return n;
+    if (v >> 16) { v >>= 16; n = 16; }
+    if (v >> 8) { v >>= 8; n += 8; }
+    if (v >> 4) { v >>= 4; n += 4; }
+    if (v >> 2) { v >>= 2; n += 2; }
+    if (v >> 1) { v >>= 1; n += 1; }
+    return n + (int)v;
 }
 
-static s32 muldiv(s32 a, s32 b, s32 d)       /* a*b/d sin desbordar */
+s32 muldiv(s32 a, s32 b, s32 d)              /* a*b/d sin desbordar (exportada: la llama proj_all en ensamblador) */
 {
     int k = 0;
+    s32 q = mdq(a, b, d);                    /* casi siempre cabe: 1 MULS + 1 DIVS */
+    if (q != MDQ_BIG) return q;
     if (d == 0) return 0;
     while (nb(a) + nb(b) > 30) {
         if (ABS(b) > ABS(a)) { b >>= 1; d >>= 1; if (!d) return 0; }
@@ -145,7 +176,42 @@ static void project(const Camera *c, s32 x, s32 y, s32 z, s32 *sx, s32 *sy)
     *sy = VIEW_CY - muldiv(y, c->fy, z);
 }
 
-/* recorta un poligono 3D contra el plano z = near_z y lo proyecta */
+/* proyeccion de todos los vertices del objeto, una sola vez (las caras comparten vertices) */
+static s32 pxy[MAXV * 2];
+static u8 pfront[MAXV];                      /* 1 si el vertice esta delante del plano cercano */
+#ifdef USE_ASM_XOBJ
+#define FOFF(t, f) ((int)((char *)&((t *)0)->f - (char *)0))
+/* xform_pre (ql68k.s) lee estos campos por desplazamiento fijo: si cambian las estructuras, que no compile */
+typedef char chk_c_x[(FOFF(Camera, x) == 0 && FOFF(Camera, y) == 4 && FOFF(Camera, z) == 8) ? 1 : -1];
+typedef char chk_c_m[(FOFF(Camera, m) == 18 && FOFF(Camera, fx) == 36 && FOFF(Camera, fy) == 38) ? 1 : -1];
+typedef char chk_o_t[(FOFF(Obj, type) == 0 && FOFF(Obj, ox) == 4 && FOFF(Obj, oy) == 8) ? 1 : -1];
+typedef char chk_o_z[(FOFF(Obj, oz) == 12 && FOFF(Obj, radius) == 14 && OBJ_SOLID == 2 && MIN_PX == 1) ? 1 : -1];
+#endif
+typedef char chk_view_cx[(VIEW_CX == 256) ? 1 : -1];     /* proj_all (ql68k.s) lleva 256 y 48 escritos */
+typedef char chk_view_cy[(VIEW_CY == 48) ? 1 : -1];
+typedef char chk_view_w2[(VIEW_W / 2 == 240) ? 1 : -1];  /* xform_obj multiplica por 240 y 48 con desplazamientos */
+typedef char chk_view_h2[(VIEW_H / 2 == 48) ? 1 : -1];
+#if MIN_PX == 1
+#define PXMUL(v) (v)
+#else
+#define PXMUL(v) ((v) * MIN_PX)
+#endif
+
+#ifndef USE_ASM_3D
+void proj_all(const s32 *v, int n, s32 near_z, int fx, int fy, s32 *out, u8 *front)
+{
+    int k;
+    for (k = 0; k < n; k++, v += 3, out += 2) {
+        if (v[2] >= near_z) {
+            front[k] = 1;
+            out[0] = VIEW_CX + muldiv(v[0], fx, v[2]);
+            out[1] = VIEW_CY - muldiv(v[1], fy, v[2]);
+        } else front[k] = 0;
+    }
+}
+#endif
+
+/* recorta un poligono 3D contra el plano z = near_z y lo proyecta (camino general, para caras que cruzan el plano) */
 static int clip_project(const Camera *c, const u8 *idx, int n, s32 *out)
 {
     s32 in[MAXCLIP * 3], cl[MAXCLIP * 3];
@@ -158,7 +224,7 @@ static int clip_project(const Camera *c, const u8 *idx, int n, s32 *out)
         in[i * 3 + 2] = vw[idx[i] * 3 + 2];
     }
     for (i = 0; i < n; i++) {
-        j = (i + 1) % n;
+        j = i + 1; if (j == n) j = 0;
         a = in + i * 3; b = in + j * 3;
         ia = a[2] >= near_z; ib = b[2] >= near_z;
         if (ia) { cl[m * 3] = a[0]; cl[m * 3 + 1] = a[1]; cl[m * 3 + 2] = a[2]; m++; }
@@ -176,38 +242,84 @@ static int clip_project(const Camera *c, const u8 *idx, int n, s32 *out)
 
 void gfx_poly32(Surface *s, int n, const s32 *xy, Fill f);
 
-/* area con signo (para ocultacion de caras traseras) */
+/* area con signo (para ocultacion de caras traseras): coordenadas reducidas a 11 bits para sumar con MULS de 16 bits */
 static s32 area2(const s32 *p, int n)
 {
-    s32 mx = 0, a = 0, x0, y0, x1, y1;
-    int i, sh = 0;
-    for (i = 0; i < 2 * n; i++) if (ABS(p[i]) > mx) mx = ABS(p[i]);
+    s32 mx = 0, a = 0, v;
+    int i, sh = 0, x0, y0, x1, y1;
+    for (i = 0; i < 2 * n; i++) { v = p[i]; if (v < 0) v = -v; if (v > mx) mx = v; }
     while ((mx >> sh) > 2047) sh++;
+    x0 = (int)(p[2 * n - 2] >> sh); y0 = (int)(p[2 * n - 1] >> sh);
     for (i = 0; i < n; i++) {
-        x0 = p[2 * i] >> sh; y0 = p[2 * i + 1] >> sh;
-        x1 = p[2 * ((i + 1) % n)] >> sh; y1 = p[2 * ((i + 1) % n) + 1] >> sh;
-        a += x0 * y1 - x1 * y0;
+        x1 = (int)(p[2 * i] >> sh); y1 = (int)(p[2 * i + 1] >> sh);
+        a += MULS16(x0, y1) - MULS16(x1, y0);
+        x0 = x1; y0 = y1;
     }
     return a;
+}
+
+/* profundidad media de una cara (suma de z de sus vertices entre n) sin la division de biblioteca para n = 2, 3, 4 */
+static s32 face_key(const u8 *f)
+{
+    s32 t = 0;
+    int k, n = f[0];
+    for (k = 0; k < n; k++) t += vw[f[2 + k] * 3 + 2];
+    switch (n) {
+    case 2: return t >> 1;
+    case 3: return fxmul(t, 21846L);                       /* t/3 por reciproco */
+    case 4: return t >> 2;
+    default: return n ? t / n : 0;
+    }
+}
+
+#ifndef USE_ASM_3D
+/* cara con n indices: -1 si algun vertice esta detras del plano (hay que recortar); si no copia las proyecciones a out y, con
+ * cull, devuelve 0 para una cara trasera (area >= 0) o de un solo pixel, y 1 para una visible; sin cull devuelve 1 */
+int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy_, s32 *out, int cull)
+{
+    int i, k;
+    s32 lx = MDQ_BIG, hx = -MDQ_BIG, ly = MDQ_BIG, hy = -MDQ_BIG, x, y;
+    if (n < 3) return -1;
+    for (i = 0; i < n; i++) if (!front[idx[i]]) return -1;
+    for (i = 0; i < n; i++) {
+        k = idx[i];
+        x = out[2 * i] = pxy_[2 * k];
+        y = out[2 * i + 1] = pxy_[2 * k + 1];
+        if (x < lx) lx = x;
+        if (x > hx) hx = x;
+        if (y < ly) ly = y;
+        if (y > hy) hy = y;
+    }
+    if (hx - lx <= TINY_PX && hy - ly <= TINY_PX) return 0;      /* cara de un pixel: no se pinta */
+    if (!cull) return 1;
+    return area2(out, n) < 0;
+}
+#endif
+
+/* rellena y contornea una cara ya proyectada (m vertices en p) */
+static void paint_face(Surface *s, int a, const s32 *p, int m)
+{
+    int i;
+    vstats.faces++;
+    if (!(a & FA_NOFILL)) gfx_poly32(s, m, p, fill_tab[FA_FILL(a)]);
+    if ((a & FA_NOFILL) || ((a & FA_OUTLINE) && obj_u < 1))
+        for (i = 0; i < m; i++)
+            gfx_line(s, p[2 * i], p[2 * i + 1], p[2 * ((i + 1) % m)], p[2 * ((i + 1) % m) + 1], FA_LCOL(a));
 }
 
 static void draw_poly(Surface *s, const Camera *c, const u8 *f, int cull)
 {
     s32 p[MAXCLIP * 2];
-    int n = f[0], a = f[1], m, i;
-    m = clip_project(c, f + 2, n, p);
-    if (m < 3) return;
-    if (cull && area2(p, m) >= 0) return;
-    vstats.faces++;
-#ifdef HOST_DEBUG
-    if (FA_FILL(a) == F_BROWN && !(a & FA_NOFILL)) {
-        int q; printf("BROWN m=%d:", m); for (q = 0; q < m; q++) printf(" [%ld,%ld]", (long)p[2*q], (long)p[2*q+1]); printf("\n");
+    int n = f[0], m, rc;
+    rc = n <= MAXCLIP - 4 ? poly_fast(f + 2, n, pfront, pxy, p, cull) : -1;
+    if (rc == 0) return;                          /* cara trasera */
+    if (rc > 0) m = n;
+    else {
+        m = clip_project(c, f + 2, n, p);
+        if (m < 3) return;
+        if (cull && area2(p, m) >= 0) return;
     }
-#endif
-    if (!(a & FA_NOFILL)) gfx_poly32(s, m, p, fill_tab[FA_FILL(a)]);
-    if ((a & FA_NOFILL) || ((a & FA_OUTLINE) && obj_u < 1))
-        for (i = 0; i < m; i++)
-            gfx_line(s, p[2 * i], p[2 * i + 1], p[2 * ((i + 1) % m)], p[2 * ((i + 1) % m) + 1], FA_LCOL(a));
+    paint_face(s, f[1], p, m);
 }
 
 static void draw_seg(Surface *s, const Camera *c, int i0, int i1, int col)
@@ -233,14 +345,29 @@ static void draw_seg(Surface *s, const Camera *c, int i0, int i1, int col)
     gfx_line(s, x0, y0, x1, y1, col);
 }
 
+#ifndef USE_ASM_XOBJ
+/* prepara y transforma cnt vertices del objeto (uno de cada `step`): rel = r + ((v << vshift) >> U) y out = m * rel >> 14.
+ * En el QL es una sola rutina en ensamblador (xform_obj3, ql68k.s); aqui hace exactamente lo mismo. */
+static void xform_obj3(const s16 *m, const s16 *v, s32 *out, int cnt, int step, int vshift, int U, int rx, int ry, int rz)
+{
+    int j, k = 0;
+    for (j = 0; j < cnt; j++, k += step) {
+        rel[0] = (s16)(rx + (((s32)v[k * 3] << vshift) >> U));
+        rel[1] = (s16)(ry + (((s32)v[k * 3 + 1] << vshift) >> U));
+        rel[2] = (s16)(rz + (((s32)v[k * 3 + 2] << vshift) >> U));
+        xform3(m, rel, out + j * 3, 1);
+    }
+}
+#endif
+
 /* transforma los vertices de un objeto. Devuelve 0 si no se dibuja. */
-static int xform_obj(const Camera *c, const Obj *o, s32 dmax)
+#ifndef USE_ASM_XOBJ
+/* prologo de xform_obj: 0 si el objeto no se dibuja; si no res = { U, rx, ry, rz }. En el QL es xform_pre (ql68k.s); aqui hace lo mismo. */
+static int xform_pre(const Camera *c, const Obj *o, s32 dmax, s32 *res)
 {
     s32 dx, dy, dz, d;
-    int U = 0, k, n = o->nv;
+    int U = 0;
     s16 rx, ry, rz;
-    const s16 *v = o->v;
-    if (n > MAXV) n = MAXV;
     dx = ((s32)o->ox << 8) - c->x;
     dy = ((s32)o->oy << 8) - c->y;
     dz = ((s32)o->oz << 8) - c->z;
@@ -249,65 +376,89 @@ static int xform_obj(const Camera *c, const Obj *o, s32 dmax)
     d = d + o->radius + (ABS(dz) >> 8);
     while (((d << 3) >> U) > 28000L) { U++; if (U > 9) return 0; }
     rx = (s16)(dx >> (5 + U)); ry = (s16)(dy >> (5 + U)); rz = (s16)(dz >> (5 + U));
-    light_step = 1 + (U > 2 ? (1 << (U - 2)) - 1 : 0);   /* luces lejanas: 1 de cada k */
-    /* descarte por esfera envolvente contra la piramide de vision: un solo
-     * vertice transformado decide si merece la pena transformar el resto */
+    /* descarte por esfera envolvente contra la piramide de vision: un solo vertice transformado decide si merece la pena
+     * transformar el resto */
     {
         s16 c3[3];
-        s32 cv[3], r = ((s32)o->radius * 9 >> U) + 8;
+        s32 cv[3], r = ((((s32)o->radius << 3) + o->radius) >> U) + 8, z2;       /* radio*9 sin multiplicar */
         c3[0] = rx; c3[1] = ry; c3[2] = rz;
         xform3(c->m, c3, cv, 1);
-        if (cv[2] + r < 0) return 0;
-        if ((ABS(cv[0]) - r) * c->fx > (cv[2] + r) * (VIEW_W / 2)) return 0;
-        if ((ABS(cv[1]) - r) * c->fy > (cv[2] + r) * (VIEW_H / 2)) return 0;
+        z2 = cv[2] + r;
+        if (z2 < 0) return 0;
+        /* (|x|-r)*fx > (z+r)*240 y (|y|-r)*fy > (z+r)*48 */
+        if (((cv[0] < 0 ? -cv[0] : cv[0]) - r) * c->fx > (z2 << 8) - (z2 << 4)) return 0;     /* VIEW_W / 2 = 240 */
+        if (((cv[1] < 0 ? -cv[1] : cv[1]) - r) * c->fy > (z2 << 5) + (z2 << 4)) return 0;     /* VIEW_H / 2 = 48 */
+        /* solidos menores de un pixel: no se dibujan (el suelo y las lineas son grandes aunque sean finos) */
+        if (MIN_PX && o->type == OBJ_SOLID && r * c->fx < PXMUL(cv[2])) return 0;
     }
+    res[0] = U; res[1] = rx; res[2] = ry; res[3] = rz;
+    return 1;
+}
+#endif
+
+static int xform_obj(const Camera *c, const Obj *o, s32 dmax)
+{
+    s32 res[4];
+    int U, k, n = o->nv;
+    s16 rx, ry, rz;
+    const s16 *v = o->v;
+    if (n > MAXV) n = MAXV;
+    if (!xform_pre(c, o, dmax, res)) return 0;
+    U = (int)res[0]; rx = (s16)res[1]; ry = (s16)res[2]; rz = (s16)res[3];
+    light_shift = U > LIGHT_U0 ? U - LIGHT_U0 : 0;       /* luces lejanas: 1 de cada 2^light_shift */
+    light_step = 1 << light_shift;
     if (o->type == OBJ_LIGHTS) {
         /* solo se transforman las luces que se van a pintar */
-        int j = 0;
-        for (k = 0; k < n; k += light_step, j++) {
-            rel[j * 3]     = (s16)(rx + (((s32)v[k * 3] << o->vshift) >> U));
-            rel[j * 3 + 1] = (s16)(ry + (((s32)v[k * 3 + 1] << o->vshift) >> U));
-            rel[j * 3 + 2] = (s16)(rz + (((s32)v[k * 3 + 2] << o->vshift) >> U));
-        }
-        xform3(c->m, rel, vw, j);
+        int j = (n + light_step - 1) >> light_shift;
+        xform_obj3(c->m, v, vw, j, light_step, o->vshift, U, rx, ry, rz);
         near_z = MAX(4 >> U, 1);
         obj_u = U;
         vstats.verts += j;
         return j;
     }
-    for (k = 0; k < n; k++) {
-        rel[k * 3]     = (s16)(rx + (((s32)v[k * 3] << o->vshift) >> U));
-        rel[k * 3 + 1] = (s16)(ry + (((s32)v[k * 3 + 1] << o->vshift) >> U));
-        rel[k * 3 + 2] = (s16)(rz + (((s32)v[k * 3 + 2] << o->vshift) >> U));
-    }
-    xform3(c->m, rel, vw, n);
+    xform_obj3(c->m, v, vw, n, 1, o->vshift, U, rx, ry, rz);
     near_z = 4 >> U;
     if (near_z < 1) near_z = 1;
     obj_u = U;
     vstats.verts += n;
     /* descarte rapido: todo detras de la camara */
     for (k = 0; k < n; k++) if (vw[k * 3 + 2] >= near_z) break;
-    return k < n;
+    if (k == n) return 0;
+    proj_all(vw, n, near_z, c->fx, c->fy, pxy, pfront);
+    return 1;
 }
 
+#define SORTF 64
+static s32 sbuf[SORTF][16];                  /* proyeccion de cada cara visible (hasta 8 vertices) */
+
+/* caras de un solido concavo (montanas, manzanas): se descartan primero las traseras (la mitad, sin clave ni ordenacion) y
+ * solo las visibles se ordenan por profundidad (pintor, de lejos a cerca) */
 static void draw_sorted(Surface *s, const Camera *c, const Obj *o)
 {
-    const u8 *f = o->f, *fp[64];
-    s32 key[64], t;
-    int i, j, k, nf = MIN(o->nf, 64), ord[64], to;
+    const u8 *f = o->f, *fp[SORTF];
+    s32 key[SORTF];
+    int i, j, nf = MIN(o->nf, SORTF), nv = 0, n, rc, ord[SORTF], fm[SORTF], to;
     for (i = 0; i < nf; i++) {
-        fp[i] = f; t = 0;
-        for (k = 0; k < f[0]; k++) t += vw[f[2 + k] * 3 + 2];
-        key[i] = t / (f[0] ? f[0] : 1);
-        ord[i] = i;
-        f += 2 + f[0];
+        n = f[0];
+        rc = n <= 8 ? poly_fast(f + 2, n, pfront, pxy, sbuf[nv], 1) : -1;
+        if (rc != 0) {                            /* 1 = visible, -1 = hay que recortarla */
+            fp[nv] = f; fm[nv] = rc > 0 ? n : -1;
+            key[nv] = face_key(f);
+            ord[nv] = nv;
+            nv++;
+        }
+        f += 2 + n;
     }
-    for (i = 1; i < nf; i++) {
+    for (i = 1; i < nv; i++) {
         to = ord[i]; j = i - 1;
         while (j >= 0 && key[ord[j]] < key[to]) { ord[j + 1] = ord[j]; j--; }
         ord[j + 1] = to;
     }
-    for (i = 0; i < nf; i++) draw_poly(s, c, fp[ord[i]], 1);
+    for (i = 0; i < nv; i++) {
+        to = ord[i];
+        if (fm[to] > 0) paint_face(s, fp[to][1], sbuf[to], fm[to]);
+        else draw_poly(s, c, fp[to], 1);
+    }
 }
 
 static void draw_obj(Surface *s, const Camera *c, const Obj *o)
@@ -329,7 +480,7 @@ static void draw_obj(Surface *s, const Camera *c, const Obj *o)
              * el (j*light_step)-esimo del objeto (ver xform_obj) */
             col = f[1] & 3;
             for (k = 0; k < n; k += light_step) {
-                s32 *p = vw + (f[2 + k] / light_step) * 3;
+                s32 *p = vw + (f[2 + k] >> light_shift) * 3;
                 if (p[2] < near_z) continue;
                 project(c, p[0], p[1], p[2], &sx, &sy);
                 gfx_pixel(s, (int)sx, (int)sy, col);
@@ -343,11 +494,16 @@ static void draw_obj(Surface *s, const Camera *c, const Obj *o)
 
 typedef struct { const Obj *o; s32 key; } Item;
 static Item items[MAXITEMS];
+static int n_items, next_item;            /* lista ordenada del cuadro y primer objeto sin dibujar */
 
-void view_world(Surface *s, const Camera *c, World *w)
+/* Primera mitad de view_world: reune los objetos visibles y los ordena (de lejos a cerca); devuelve el coste estimado de
+ * dibujarlos (vertices + caras). Se pueden dibujar en uno o varios cuadros con view_world_step. Los tiles quedan protegidos
+ * del desalojo mientras no se vuelva a llamar a world_tiles_near (solo la vista lo hace). */
+s32 view_world_begin(const Camera *c, World *w)
 {
     Tile *tl[TILE_CACHE];
-    int nt, i, k, ni = 0, ng, j;
+    int nt, i, k, ni = 0, j;
+    s32 total = 0;
     s32 dmax = c->vis, cx = c->x >> 8, cy = c->y >> 8, d;
     Item t;
     vstats.objs = vstats.faces = vstats.lines = vstats.verts = 0;
@@ -364,7 +520,10 @@ void view_world(Surface *s, const Camera *c, World *w)
                 continue;
             if (c->cloud_base && (c->z >> 8) > c->cloud_top && o->type != OBJ_SOLID) continue;
             d = MAX(ABS(o->ox - cx), ABS(o->oy - cy));
-            if (d - (s32)o->radius > MIN(dmax, (s32)o->lod << 8)) continue;
+            if (d - (s32)o->radius > MIN(dmax, ((s32)o->lod << 8) * (o->type == OBJ_SOLID && o->lod < 128 ? SOLID_LOD : 8) / 8)) continue;
+            /* detras de la camara (con el radio de margen): ni se transforma ni entra en la lista que se ordena */
+            if (BEHIND_CULL && (MULS16((o->ox - cx) >> 3, c->m[6]) + MULS16((o->oy - cy) >> 3, c->m[7]) +
+                 MULS16((o->oz - (c->z >> 8)) >> 3, c->m[8])) >> 14 < -(((s32)o->radius >> 3) + 16)) continue;
             items[ni].o = o;
             items[ni].key = (o->type == OBJ_GROUND || o->type == OBJ_LINES)
                             ? 0x40000000L + ((s32)o->radius << 8) + o->type * 0 : d;
@@ -377,20 +536,46 @@ void view_world(Surface *s, const Camera *c, World *w)
         while (j >= 0 && items[j].key < t.key) { items[j + 1] = items[j]; j--; }
         items[j + 1] = t;
     }
-    ng = ni;
-    for (i = 0; i < ng; i++) {
-        const Obj *o = items[i].o;
-        if (xform_obj(c, o, dmax)) { vstats.objs++; draw_obj(s, c, o); }
-    }
+    n_items = ni; next_item = 0;
+    for (i = 0; i < ni; i++) total += (s32)items[i].o->nv + items[i].o->nf;
+    return total;
 }
+
+/* Segunda mitad: dibuja objetos de la lista, en orden, hasta gastar `budget` de coste (siempre al menos uno). Devuelve 1 si ya
+ * estan todos. */
+int view_world_step(Surface *s, const Camera *c, s32 budget)
+{
+    s32 dmax = c->vis, spent = 0;
+#ifdef OBJ_DUMP
+    s32 cx = c->x >> 8, cy = c->y >> 8;
+#endif
+    while (next_item < n_items) {
+        const Obj *o = items[next_item++].o;
+        spent += (s32)o->nv + o->nf;
+        if (xform_obj(c, o, dmax)) { vstats.objs++;
+#ifdef OBJ_DUMP
+            printf("OBJ type %d nv %d nf %d radius %d dist %ld lod %d flags %x\n", o->type, o->nv, o->nf, o->radius, (long)(MAX(ABS(o->ox - cx), ABS(o->oy - cy))), o->lod, o->flags);
+#endif
+            draw_obj(s, c, o); }
+        if (spent >= budget) break;
+    }
+    return next_item >= n_items;
+}
+
+void view_world(Surface *s, const Camera *c, World *w)
+{
+    view_world_begin(c, w);
+    view_world_step(s, c, 0x7FFFFFFFL);
+}
+
 
 /* ------------------------------------------------ avion en vista exterior */
 void view_model(Surface *s, const Camera *c, const Model *mdl,
                 s32 ax, s32 ay, s32 az, const s16 *am)
 {
     s16 C[9], base16[3];
-    s32 base[3], key[64], tk;
-    int i, j, k, n, order[64], nf, to;
+    s32 base[3], key[64];
+    int i, j, n, order[64], nf, to;
     const u8 *f, *fp[64];
     s16 *v = mdl->v;
     for (i = 0; i < 3; i++)
@@ -405,12 +590,12 @@ void view_model(Surface *s, const Camera *c, const Model *mdl,
     xform3(C, v, vw, n);
     for (i = 0; i < n; i++) { vw[i * 3] += base[0]; vw[i * 3 + 1] += base[1]; vw[i * 3 + 2] += base[2]; }
     near_z = 4;
+    proj_all(vw, n, near_z, c->fx, c->fy, pxy, pfront);
     /* caras ordenadas por profundidad media (pintor), sin ocultacion */
     f = mdl->f; nf = MIN(mdl->nf, 64);
     for (i = 0; i < nf; i++) {
-        fp[i] = f; tk = 0;
-        for (k = 0; k < f[0]; k++) tk += vw[f[2 + k] * 3 + 2];
-        key[i] = tk / (f[0] ? f[0] : 1);
+        fp[i] = f;
+        key[i] = face_key(f);
         order[i] = i;
         f += 2 + f[0];
     }

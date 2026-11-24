@@ -327,7 +327,7 @@ Un reactor ejecutivo de alas en flecha y motores en la cola. Despega en poco má
 
 ## Los mandos
 
-El teclado se lee a la vez: puedes pulsar varias teclas simultáneamente (por ejemplo, alabeo y cabeceo).
+El teclado se lee a la vez: puedes pulsar varias teclas simultáneamente (por ejemplo, alabeo y cabeceo). Para ahorrar tiempo, los cursores, ESPACIO, ENTER y ESC se leen en cada cuadro; F1-F4 y M, el punto y Z, cada dos cuadros; y el resto de las teclas, una fila por cuadro en rotación (cada cinco cuadros). Mantén pulsada la tecla un instante si no responde de inmediato.
 
 ### Mandos de vuelo
 
@@ -390,6 +390,7 @@ Cada pulsación cambia la frecuencia un paso; con **Mayús** va en sentido contr
 | **TAB** | Pausa. |
 | **T** / **Mayús+T** | Hora +1 h / −1 h. |
 | **R** / **Mayús+R** | Reinicia el vuelo en el aeropuerto siguiente / anterior. |
+| **\\** (barra invertida) | Muestra u oculta el indicador de cuadros por segundo (abajo a la izquierda). |
 | **ENTER** | Tras un choque, reinicia el vuelo. |
 | **ESC** | Sale al menú. |
 

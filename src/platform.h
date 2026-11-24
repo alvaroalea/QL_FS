@@ -9,6 +9,7 @@ u8   *plat_screen(void);          /* pantalla modo 4 (0x20000 en el QL) */
 u32   plat_ticks(void);           /* contador de 50 Hz */
 int   plat_keyrow(int row);       /* KEYROW del IPC (bit a 1 = pulsada) */
 void  plat_frame(void);           /* fin de cuadro (en PC: volcado de pantalla) */
+void *plat_alloc_hi(long n);      /* memoria de la RAM de expansion (>= $40000, sin contencion con el ZX8301); en PC, malloc */
 void  plat_path(char *out, const char *name);   /* "mono.acf" -> "flp1_mono_acf" */
 
 /* matriz del teclado QL: codigo = fila*8 + bit (KEYROW) - comprobar en QL real */

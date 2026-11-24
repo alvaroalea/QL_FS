@@ -6,19 +6,46 @@
 #include <string.h>
 
 Sim sim;
-static u8 backbuf[VIEW_H * SCR_STRIDE];
+static u8 *backbuf;                      /* vista 3D: se dibuja aqui (RAM alta, sin contencion) y se vuelca de golpe a la pantalla */
 
 static int down(int k) { return sim.keys[k]; }
 static int hit(int k) { return sim.keys[k] && !sim.prev[k]; }
 
-static void read_keys(void)
+/* Lectura del teclado. Cada fila cuesta una transaccion con el IPC (MT.IPCOM, ~125000 ciclos), asi que en el QL solo se leen
+ * 3 filas por cuadro y el resto conserva su ultimo valor (sim.keys es una foto que se refresca por filas):
+ *   - fila 1 (cursores, ESPACIO, ENTER, ESC, \) en todos los cuadros;
+ *   - fila 0 (F1-F4, 5, 4) y fila 2 (M, punto, Z, C, ]) alternadas: cada una un cuadro si y otro no;
+ *   - una de las otras cinco (3, 4, 5, 6, 7) por cuadro, en rotacion: cada una cada 5 cuadros.
+ * full = 1 lee las 8 filas (el menu no tiene prisa; en el PC siempre se leen todas). */
+#if defined(PLAT_QL) || defined(KEY_PARTIAL)
+#define KEY_SCAN_PARTIAL 1
+#endif
+
+
+static void scan_row(int r)
 {
-    int r, b, v;
+    int b, v = plat_keyrow(r);
+    for (b = 0; b < 8; b++) sim.keys[r * 8 + b] = (u8)((v >> b) & 1);
+}
+
+static void read_keys(int full)
+{
+    int r;
+#ifdef KEY_SCAN_PARTIAL
+    static int kc;
+    static const u8 rest[5] = { 3, 4, 5, 6, 7 };
+#endif
     memcpy(sim.prev, sim.keys, 64);
-    for (r = 0; r < 8; r++) {
-        v = plat_keyrow(r);
-        for (b = 0; b < 8; b++) sim.keys[r * 8 + b] = (u8)((v >> b) & 1);
+#ifdef KEY_SCAN_PARTIAL
+    if (!full) {
+        scan_row(1);
+        scan_row((kc & 1) ? 2 : 0);
+        scan_row(rest[kc % 5]);
+        kc++;
+        return;
     }
+#endif
+    for (r = 0; r < 8; r++) scan_row(r);
 }
 
 void sim_reset(void)
@@ -26,6 +53,7 @@ void sim_reset(void)
     const Airport *ap = &sim.w.apt[sim.start_apt];
     const Runway *rw = &ap->rwy[0];
     s32 sx = isin(rw->hdg), cx = icos(rw->hdg);
+    sim.vpart = 0;                              /* la vista que estuviera a medias se abandona */
     flight_init(&sim.f, &sim.ac);
     /* 60 m despues del umbral, en el eje */
     if (sim.ac.eng_type == ENG_NONE)   /* planeador: empieza en el aire, 4 km antes del umbral */
@@ -49,9 +77,11 @@ int sim_init(const char *scn, const char *acf, int hour)
     if (!world_open(&sim.w, scn)) return -1;
     if (!aircraft_load(&sim.ac, acf)) return -2;
     sim.scr = plat_screen();
+    if (!backbuf) backbuf = (u8 *)plat_alloc_hi((long)VIEW_H * SCR_STRIDE);
+    if (!backbuf) return -3;
     gfx_init_surface(&sim.view, backbuf, VIEW_H);
     gfx_clip(&sim.view, VIEW_X0, 0, VIEW_X1, VIEW_H - 1);
-    memset(backbuf, 0, sizeof(backbuf));
+    memset(backbuf, 0, (size_t)VIEW_H * SCR_STRIDE);
     memset(sim.scr, 0, SCR_BYTES);
     cam_zoom(&sim.cam, 256);
     sim.zoom = 256;
@@ -125,6 +155,7 @@ static void controls_frame(void)
     if (hit(KEY_Y)) f->auto_coord = !f->auto_coord;
     if (hit(KEY_T)) sim.clock = (sim.clock + (sh ? 23UL : 1UL) * 3600UL) % 86400UL;
     if (hit(KEY_TAB)) sim.paused = !sim.paused;
+    if (hit(KEY_BSL)) { sim.show_fps = !sim.show_fps; sim.fps_t0 = plat_ticks(); sim.fps_n = sim.fps_v = 0; sim.fps10 = sim.lps10 = -1; }   /* \ : indicador de FPS */
     if (hit(KEY_ESC)) sim.quit = 1;
     if (f->crash && hit(KEY_ENTER)) sim_reset();
     if (hit(KEY_R)) {                       /* siguiente aeropuerto de salida */
@@ -224,37 +255,76 @@ static int build_status(void)
     return warn;
 }
 
-void sim_render(void)
+/* La vista 3D se parte en DOS cuadros para que ni el teclado ni el panel esperen a que termine entera:
+ *   cuadro A: camara, cielo, reunir y ordenar objetos y dibujar los primeros hasta gastar ~VIEW_SPLIT % del coste;
+ *   cuadro B: el resto de objetos, el avion (vistas exteriores), el aviso de choque y el volcado del buffer a la pantalla.
+ * Teclado, fisica, radios, ATC y panel corren en todos los cuadros. La camara y el avion se fijan en A, asi que la imagen
+ * que sale en B es coherente (aunque el avion se haya movido entre A y B). VIEW_SPLIT = 0: la vista entera en un cuadro. */
+#ifndef VIEW_SPLIT
+#define VIEW_SPLIT 45
+#endif
+#if VIEW_SPLIT
+#define PHYS_MAX 2          /* pasos de fisica por cuadro: con la vista en dos cuadros siguen siendo 4 por vista */
+#else
+#define PHYS_MAX 4
+#endif
+
+static s16 view_am[9];                        /* actitud y posicion del avion fijadas en el cuadro A */
+static s32 view_ax, view_ay, view_az;
+static int view_mode_a;
+
+static void view_part_a(int split)
 {
-    s16 am[9];
-    PanelInfo pi;
-    setup_camera(am);
+    s32 total;
+    setup_camera(view_am);
+    view_ax = sim.f.x; view_ay = sim.f.y; view_az = sim.f.z - (sim.ac.gear_h >> 8);
+    view_mode_a = sim.view_mode;
     view_sky(&sim.view, &sim.cam);
-    view_world(&sim.view, &sim.cam, &sim.w);
-    if (sim.view_mode != VIEW_COCKPIT)
-        view_model(&sim.view, &sim.cam, &sim.ac.model, sim.f.x, sim.f.y, sim.f.z - (sim.ac.gear_h >> 8), am);
+    total = view_world_begin(&sim.cam, &sim.w);
+    view_world_step(&sim.view, &sim.cam, split ? total / 100 * VIEW_SPLIT : 0x7FFFFFFFL);
+}
+
+static void view_part_b(void)
+{
+    view_world_step(&sim.view, &sim.cam, 0x7FFFFFFFL);
+    if (view_mode_a != VIEW_COCKPIT)
+        view_model(&sim.view, &sim.cam, &sim.ac.model, view_ax, view_ay, view_az, view_am);
     if (sim.f.crash) {
         const char *m = crash_msg(sim.f.crash);
         gfx_rect(&sim.view, VIEW_CX - gfx_textw(m) / 2 - 4, 40, VIEW_CX + gfx_textw(m) / 2 + 4, 52, fill_tab[F_BLACK]);
         gfx_text(&sim.view, VIEW_CX - gfx_textw(m) / 2, 43, m, C_RED);
     }
     gfx_memcpy(sim.scr + (s32)VIEW_Y0 * SCR_STRIDE, backbuf, (s32)VIEW_H * SCR_STRIDE);
+}
+
+static void render_panel(void)
+{
+    PanelInfo pi;
     pi.clock = sim.clock;
     pi.warn = build_status();
     pi.status = sim.status;
+    pi.fps10 = sim.show_fps ? sim.fps10 : -2;     /* -2 oculto, -1 midiendo */
+    pi.lps10 = sim.lps10;
     panel_update(sim.scr, &sim.f, &sim.r, &sim.atc, &pi, sim.part);
     sim.part = (sim.part + 1) % PANEL_PARTS;
+}
+
+void sim_render(void)                            /* vista entera y panel (lo usa el PC para las capturas) */
+{
+    view_part_a(0);
+    view_part_b();
+    render_panel();
 }
 
 void sim_frame(void)
 {
     u32 now;
     int n = 0, contact;
-    read_keys();
+    read_keys(0);
     controls_frame();
     contact = hit(KEY_K);
     now = plat_ticks();
-    while ((s32)(now - sim.tick_phys) >= 2 && n < 4) {
+    while ((s32)(now - sim.tick_phys) >= 2 && n < PHYS_MAX) {
         sim.tick_phys += 2;
         if (sim.paused) continue;
         controls_step();
@@ -273,7 +343,21 @@ void sim_frame(void)
         atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 1);
     }
     atc_scroll(&sim.atc);
-    sim_render();
+#if VIEW_SPLIT
+    if (sim.vpart == 0) { view_part_a(1); sim.vpart = 1; }                     /* cuadro A de la vista */
+    else { view_part_b(); sim.vpart = 0; sim.fps_v++; }                        /* cuadro B: la vista queda completa */
+#else
+    view_part_a(0); view_part_b(); sim.fps_v++;
+#endif
+    render_panel();
+    if (sim.show_fps) {                     /* vistas y cuadros de simulacion por segundo (decimas), en ventanas de al menos 1 s */
+        u32 dt = plat_ticks() - sim.fps_t0;
+        sim.fps_n++;
+        if (dt >= 50) {
+            sim.fps10 = (int)((u32)sim.fps_v * 500UL / dt); sim.lps10 = (int)((u32)sim.fps_n * 500UL / dt);
+            sim.fps_v = sim.fps_n = 0; sim.fps_t0 += dt;
+        }
+    }
     snd_update(&sim.f, &sim.r, sim.atc.new_msg, sim.f.crash);
     sim.atc.new_msg = 0;
     sim.frames++;
@@ -296,7 +380,7 @@ int sim_menu(char *acf, char *scn, int *hour)
     gfx_init_surface(&s, scr, SCR_H);
     *hour = 12;
     while (!done) {
-        read_keys();
+        read_keys(1);
         o_sel = sel; o_hour = *hour; o_esc = esc;
         if (hit(KEY_1)) sel = 0;
         if (hit(KEY_2)) sel = 1;

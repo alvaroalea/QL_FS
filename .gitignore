@@ -7,5 +7,6 @@ build/qfs.img
 build/qfs.win
 build/test
 src/*.o
+tmp/
 tools/__pycache__/*
 .venv/

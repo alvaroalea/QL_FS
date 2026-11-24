@@ -10,7 +10,7 @@
 all: img win
 
 CC      = qcc
-ASMDEFS = -DUSE_ASM_FXMUL -DUSE_ASM_GFX -DUSE_ASM_XFORM
+ASMDEFS = -DUSE_ASM_FXMUL -DUSE_ASM_GFX -DUSE_ASM_XFORM -DUSE_ASM_MDQ -DUSE_ASM_3D -DUSE_ASM_POLY -DUSE_ASM_XOBJ
 ifdef SOLO_C
 ASMDEFS =
 ASMOBJ  = src/qdos68k.o
@@ -78,7 +78,12 @@ img: build/qfs.img
 win: build/qfs.win
 disk: img win
 
+# perfil en sQLux (68008 a 7,5 MHz, con la contencion del ZX8301): make prof ESCENA=1  (ver tools/ql_prof.sh y doc/optimizacion.md)
+ESCENA ?= 1
+prof:
+	./tools/ql_prof.sh $(ESCENA)
+
 clean:
 	rm -f src/*.o build/qfs build/qfs.img build/qfs.win build/boot_flp1 build/boot_win1
 
-.PHONY: all clean img win disk
+.PHONY: all clean img win disk prof

@@ -2,6 +2,7 @@
 #include "platform.h"
 #include "sound.h"
 #include <string.h>
+#include <stdlib.h>
 
 extern volatile long plat_tickcnt;     /* ql68k.s, incrementado a 50 Hz */
 void plat_mode4(void);
@@ -37,6 +38,25 @@ void plat_exit(void)
 u8 *plat_screen(void) { return (u8 *)0x20000L; }
 u32 plat_ticks(void) { return (u32)plat_tickcnt; }
 void plat_frame(void) { }
+
+/* La RAM interna del QL ($20000-$3FFFF) comparte bus con el ZX8301: cada acceso de la CPU espera a que el video lea su linea
+ * (hasta 12 ciclos por byte en las lineas visibles). La RAM de expansion ($40000 en adelante) no tiene contencion, asi que el
+ * buffer donde se dibuja la vista 3D y las copias que se leen a menudo deben estar alli. QDOS reparte la memoria del monton
+ * de abajo arriba: si malloc devuelve una direccion baja, se queda ese bloque (para no volver a recibirlo) y se pide otro; al
+ * terminar se liberan los bloques bajos. Si tras 64 intentos sigue siendo baja, se usa la que haya. */
+void *plat_alloc_hi(long n)
+{
+    void *low[64], *p;
+    int nl = 0, i;
+    p = malloc((size_t)n);
+    while (p && (unsigned long)p < 0x40000UL && nl < 64) {
+        low[nl++] = p;
+        p = malloc((size_t)n);
+    }
+    if (!p && nl) p = low[--nl];                 /* no hay mas: nos quedamos con un bloque bajo */
+    for (i = 0; i < nl; i++) free(low[i]);
+    return p;
+}
 
 /* "mono.acf" -> "flp1_mono_acf" */
 void plat_path(char *out, const char *name)

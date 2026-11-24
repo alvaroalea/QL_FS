@@ -38,6 +38,9 @@ void cam_zoom(Camera *c, int z256);  /* 256 = normal */
 
 void view_sky(Surface *s, const Camera *c);
 void view_world(Surface *s, const Camera *c, World *w);
+/* la misma vista partida: begin reune y ordena (devuelve el coste total), step dibuja objetos hasta gastar el presupuesto */
+s32  view_world_begin(const Camera *c, World *w);
+int  view_world_step(Surface *s, const Camera *c, s32 budget);   /* 1 si no quedan objetos */
 /* avion exterior: posicion Q8, matriz de actitud (filas derecha/arriba/adelante) */
 void view_model(Surface *s, const Camera *c, const Model *mdl,
                 s32 ax, s32 ay, s32 az, const s16 *am);

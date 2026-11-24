@@ -19,6 +19,20 @@ s32 fxmul(s32 a, s32 b)
 }
 #endif
 
+#ifndef USE_ASM_MDQ
+/* a*b/d por la via rapida del 68000: |a|,|b| <= 32767, divisor de 16 bits (si no, se desplaza d y a a la vez) y cociente de
+ * 16 bits con signo; si algo no cabe devuelve MDQ_BIG y el que llama usa la version lenta exacta. */
+s32 mdq(s32 a, s32 b, s32 d)
+{
+    s32 q;
+    while (d > 32767L || d < -32768L) { d >>= 1; a >>= 1; }
+    if (d == 0 || a > 32767L || a < -32768L || b > 32767L || b < -32768L) return MDQ_BIG;
+    q = MULS16(a, b) / d;
+    if (q > 32767L || q < -32768L) return MDQ_BIG;
+    return q;
+}
+#endif
+
 /* (a<<16)/b sin 64 bits: se normaliza a hacia arriba y b hacia abajo */
 s32 fxdiv(s32 a, s32 b)
 {

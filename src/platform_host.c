@@ -2,6 +2,7 @@
  * 32 KB con el mismo formato que la del QL; el programa de prueba controla
  * el reloj y las teclas, y vuelca capturas (tools/qlscr2png.py las pasa a PNG). */
 #include "platform.h"
+#include <stdlib.h>
 #include "sound.h"
 #include <stdio.h>
 #include <string.h>
@@ -39,3 +40,5 @@ int host_dump(const char *fname)
     fclose(f);
     return 1;
 }
+
+void *plat_alloc_hi(long n) { return malloc((size_t)n); }

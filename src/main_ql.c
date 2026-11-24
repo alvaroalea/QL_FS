@@ -8,11 +8,15 @@
 #include "gfx.h"
 #include <string.h>
 #include "qlvars.h"
+#include "qfs_prof.h"
 
 long _stack = 32768L;                  /* c68: pila de la tarea */
 char _prog_name[] = "QFS";
 
 extern char plat_dev[8];
+#ifdef QFS_PROF
+extern void prof_run(void);
+#endif
 
 int main(int argc, char **argv)
 {
@@ -24,6 +28,11 @@ int main(int argc, char **argv)
     if (ql_basic_str("D", v, sizeof v) && v[0] && strlen(v) < 7) strcpy(plat_dev, v);
     plat_init();
     snd_init();
+#ifdef QFS_PROF
+    prof_run();                        /* escena fija y perfil (tools/ql_prof.sh) */
+    plat_exit();
+    return 0;
+#endif
     for (;;) {
         if (!sim_menu(acf, scn, &hour)) break;
         r = sim_init(scn, acf, hour);
