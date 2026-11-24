@@ -70,6 +70,7 @@ class Scen:
     def __init__(s):
         s.name, s.tlog, s.elev = "ESCENARIO", 14, 0
         s.objs, s.navs, s.apts = [], [], {}
+        s.vis = 0
         s.apt_order = []
 
     # ---------------------------------------------------------------- objetos
@@ -341,7 +342,7 @@ class Scen:
                 if (tx, ty) not in tiles:
                     struct.pack_into(">IHh", tdir, (ty * ntx + tx) * 8, 0, 0, s.elev)
         hdr = struct.pack(">4sHHiiHHHHIIIhH24s", b"QFS1", 1, s.tlog, ox, oy, ntx, nty, len(s.navs),
-                          len(s.apt_order), off_tdir, off_nav, off_apt, s.elev, 0, s.name.upper().encode()[:24].ljust(24))
+                          len(s.apt_order), off_tdir, off_nav, off_apt, s.elev, s.vis, s.name.upper().encode()[:24].ljust(24))
         hdr = hdr.ljust(64, b"\0")
         data = hdr + bytes(tdir) + navb + aptb + texts + blobs
         open(out, "wb").write(data)

@@ -1,2 +1,4 @@
 build/*.o
 build/disco
+build/*
+tools/__pycache__/*

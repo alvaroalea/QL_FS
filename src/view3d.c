@@ -13,7 +13,7 @@ ViewStats vstats;
 
 #define MAXV   96
 #define MAXCLIP 24
-#define MAXITEMS 160
+#define MAXITEMS 256
 
 static s16 rel[MAXV * 3];
 static s32 vw[MAXV * 3];
@@ -67,17 +67,37 @@ void xform3(const s16 *m, const s16 *in, s32 *out, int n)
 #endif
 
 /* ------------------------------------------------ cielo y suelo */
+/* rellena la fila y en tres tramos segun f(x) = A*(x-cx) + B:
+ * f > 0 cielo, -K < f <= 0 bruma (suelo mas alla de la visibilidad), f <= -K suelo */
+static void sky_row(Surface *s, int y, s32 A, s32 B, s32 K, Fill fs, Fill fh, Fill fg)
+{
+    s32 x0 = s->cx0, x1 = s->cx1, xa, xb, t;
+    Fill lo, hi;
+    if (ABS(A) < 8) {
+        gfx_hspan(s, y, (int)x0, (int)x1, B > 0 ? fs : (B > -K ? fh : fg));
+        return;
+    }
+    xa = VIEW_CX + (-K - B) / A;          /* f = -K */
+    xb = VIEW_CX + (0 - B) / A;           /* f = 0  */
+    if (A > 0) { lo = fg; hi = fs; }      /* f crece con x: suelo, bruma, cielo */
+    else { lo = fs; hi = fg; t = xa; xa = xb; xb = t; }
+    if (xa > x0) gfx_hspan(s, y, (int)x0, (int)MIN(xa, x1 + 1) - 1, lo);
+    if (xb > xa && xb > x0 && xa <= x1)
+        gfx_hspan(s, y, (int)MAX(xa, x0), (int)MIN(xb, x1 + 1) - 1, fh);
+    if (xb <= x1) gfx_hspan(s, y, (int)MAX(xb, x0), (int)x1, hi);
+}
+
 void view_sky(Surface *s, const Camera *c)
 {
-    s32 ux = c->m[2] >> 4, uy = c->m[5] >> 4, uz = c->m[8] >> 4;   /* Q10 */
-    s32 A, B, xb, cz = c->z >> 8;
-    int y, sky_right;
-    Fill fs, fg;
+    s32 ux = c->m[2] >> 6, uy = c->m[5] >> 6, uz = c->m[8] >> 6;   /* Q8: sin desbordar con zoom x8 */
+    s32 A, B, K, cz = c->z >> 8, h, tq, ff;
+    int y;
+    Fill fs, fg, fh;
 
     switch (c->light) {
-    case LIGHT_NIGHT: fs = fill_tab[F_BLACK]; fg = fill_tab[F_BLACK]; break;
-    case LIGHT_DUSK:  fs = fill_tab[F_SKYDUSK]; fg = fill_tab[F_DKGREEN]; break;
-    default:          fs = fill_tab[F_WHITE]; fg = fill_tab[F_GREEN]; break;
+    case LIGHT_NIGHT: fs = fill_tab[F_BLACK]; fg = fill_tab[F_BLACK]; fh = fs; break;
+    case LIGHT_DUSK:  fs = fill_tab[F_SKYDUSK]; fg = fill_tab[F_DKGREEN]; fh = fill_tab[F_DKRED]; break;
+    default:          fs = fill_tab[F_WHITE]; fg = fill_tab[F_GREEN]; fh = fill_tab[F_HAZE]; break;
     }
     if (c->cloud_base) {
         if (cz >= c->cloud_base && cz <= c->cloud_top) {   /* dentro de la nube */
@@ -85,25 +105,17 @@ void view_sky(Surface *s, const Camera *c)
             return;
         }
         if (cz < c->cloud_base) fs = fill_tab[c->light == LIGHT_NIGHT ? F_BLACK : F_GREY];
-        else fg = fill_tab[c->light == LIGHT_NIGHT ? F_DKGREY : F_LTGREY];
+        else fg = fh = fill_tab[c->light == LIGHT_NIGHT ? F_DKGREY : F_LTGREY];
     }
+    /* banda de bruma: depresion bajo el horizonte del suelo a la distancia de visibilidad */
+    h = MAX(cz - (c->ground >> 8), 2);
+    tq = h * 256 / MAX(c->vis, 1000);                  /* tan(depresion) Q8 */
+    ff = (s32)c->fx * c->fy;
+    K = MIN(tq, 0x7FFFFFFFL / MAX(ff, 1)) * ff;
     A = ux * c->fy;
-    sky_right = A > 0;
     for (y = s->cy0; y <= s->cy1; y++) {
-        B = uy * c->fx * (VIEW_CY - y) + uz * ((s32)c->fx * c->fy >> 4) * 16;
-        if (A == 0 || ABS(A) < 8) {
-            gfx_hspan(s, y, s->cx0, s->cx1, B > 0 ? fs : fg);
-            continue;
-        }
-        xb = VIEW_CX - B / A;
-        if (xb <= s->cx0) {
-            gfx_hspan(s, y, s->cx0, s->cx1, sky_right ? fs : fg);
-        } else if (xb > s->cx1) {
-            gfx_hspan(s, y, s->cx0, s->cx1, sky_right ? fg : fs);
-        } else {
-            gfx_hspan(s, y, s->cx0, (int)xb - 1, sky_right ? fg : fs);
-            gfx_hspan(s, y, (int)xb, s->cx1, sky_right ? fs : fg);
-        }
+        B = uy * c->fx * (VIEW_CY - y) + uz * ff;
+        sky_row(s, y, A, B, K, fs, fh, fg);
     }
 }
 

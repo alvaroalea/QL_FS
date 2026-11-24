@@ -86,7 +86,7 @@ typedef struct {
     char *atis_text;
 } Airport;
 
-#define TILE_CACHE 25
+#define TILE_CACHE 49      /* 7x7 teselas: visibilidad de hasta ~48 km */
 
 typedef struct {
     FILE *fp;
@@ -96,6 +96,7 @@ typedef struct {
     int   ntx, nty;
     int   nnav, napt;
     s16   elev;
+    int   vis_km;          /* visibilidad propuesta por el escenario (0 = por defecto) */
     u32  *tdir_off;
     u16  *tdir_size;
     s16  *tdir_elev;

@@ -44,6 +44,7 @@ int world_open(World *w, const char *fname)
     off_nav = rd32(h + 28);
     off_apt = rd32(h + 32);
     w->elev = (s16)rd16(h + 36);
+    w->vis_km = rd16(h + 38);
     memcpy(w->name, h + 40, 24); w->name[24] = 0;
     for (i = 23; i >= 0 && (w->name[i] == ' ' || !w->name[i]); i--) w->name[i] = 0;
 

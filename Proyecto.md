@@ -3,11 +3,18 @@
 Simulador de vuelo para el Sinclair QL (68008, 640 KB, modo 4 512x256, QSound con PSG), inspirado en
 Microsoft Flight Simulator 1.0 (1982). C89 para c68/XTC68 (`qcc`) y ensamblador as68 en las partes críticas.
 
-## Estado (24-nov-2026) – paso 1 y 2 terminados
+## Estado (24-nov-2026) – pasos 1, 2 y escenario ibérico terminados
 
 - [x] Núcleo portable en C: punto fijo, tablas, gráficos modo 4, motor 3D, teselas, aviones, vuelo, motores,
       radios (VOR/ILS/DME/ADF/balizas), ATC, panel, sonido, menú.
 - [x] Banco de pruebas en PC (`make`): física, ILS, ATC y 13 capturas en formato de pantalla QL.
+- [x] Escenario Península Ibérica (`tools/iberia.py` -> `build/iberia.scn`, 451 KB a escala 1:2, 750 KB a 1:1):
+      13 aeropuertos con ILS/VOR/ATIS (Madrid, Barcelona, Palma, Ibiza, Valencia, Málaga, Sevilla, Santiago,
+      Asturias, Lisboa, Tenerife Sur, Fuerteventura, Gran Canaria), 20 VOR y 9 NDB en ruta, 33 ciudades,
+      sistemas montañosos, ríos, autovías y mar con SPLASH. Canarias desplazada como en los mapas.
+      Datos aproximados de memoria (no para navegación real).
+- [x] Motor: visibilidad por escenario (40 km en Iberia), caché de 49 teselas, bruma en el horizonte,
+      selector de escenario en el menú (E), tecla R para cambiar de aeropuerto, planeador sale en el aire.
 - [ ] Compilar con `qcc` (`make -f Makefile.ql SOLO_C=1`, después con ensamblador).
 - [ ] Validar en QL real / sQLux (lista de abajo).
 
@@ -18,9 +25,9 @@ src/        qfs.h fixmath.c tables.c(gen) gfx.c view3d.c world.c aircraft.c flig
             util.c panel.c sound.c sim.c
             ql68k.s (fxmul, hspan, line, memcpy, xform3)   qdos68k.s (KEYROW, modo 4, reloj 50 Hz)
             platform_ql.c main_ql.c (QL)   platform_host.c (PC)
-tools/      gentables.py mkscen.py mkaviones.py qlscr2png.py
-data/       demo.txt (escenario fuente)  planeador/mono/bimotor/reactor.acf
-tests/      hosttest.c
+tools/      gentables.py mkscen.py mkaviones.py qlscr2png.py iberia.py mapa_scn.py
+data/       demo.txt, iberia.txt (escenarios fuente)  planeador/mono/bimotor/reactor.acf
+tests/      hosttest.c iberiatest.c
 Makefile    PC: datos, pruebas, capturas, disco (nombres QDOS en build/disco)
 Makefile.ql QL con qcc
 ```
@@ -29,10 +36,11 @@ Makefile.ql QL con qcc
 
 ```
 make                         # PC: tablas, escenario, aviones, pruebas y capturas PNG
-make disco                   # build/disco: demo_scn, mono_acf, ...
+make ESCALA=1.0              # Iberia a tamaño real (por defecto 0.5)
+make disco                   # build/disco: demo_scn, iberia_scn, mono_acf, ...
 make -f Makefile.ql SOLO_C=1 # QL sin rutinas gráficas en ensamblador
 make -f Makefile.ql          # QL completo -> build/qfs
-EXEC flp1_qfs                # en el QL (argumento opcional: dispositivo de datos, "win1_")
+EX win1_qfs;"win1_"          # en el QL desde el disco duro (el argumento es el dispositivo de datos)
 ```
 
 ## Pendiente de verificar en el QL (VERIFICACIÓN)
@@ -48,6 +56,8 @@ EXEC flp1_qfs                # en el QL (argumento opcional: dispositivo de dato
 | Lectura de flp1_demo_scn y *_acf | world.c, aircraft.c | arranque desde el menú |
 | Cuadros por segundo | sim.c | añadir contador a la línea de estado |
 | ROM Minerva | todo | probar como en Elite |
+| Iberia: RAM con 49 teselas y 40 km de visibilidad | world.c, sim.c | memoria libre y cuadros/s sobre Madrid |
+| Iberia: tirones al cargar teselas del disco duro | world.c | volar Madrid-Barcelona en reactor |
 
 ## Resultados de las pruebas en PC
 
@@ -59,6 +69,6 @@ EXEC flp1_qfs                # en el QL (argumento opcional: dispositivo de dato
 
 1. Compilar y validar en el QL (tabla de arriba).
 2. Optimizar: proyección con DIVS, relleno de polígonos convexos en asm, precarga de teselas, panel.
-3. Escenario: colinas, carreteras con anchura, varios .SCN, selector en el menú.
+3. Escenario: cotas del terreno (Madrid a 610 m), colinas, carreteras con anchura, más aeropuertos.
 4. Entorno (viento por capas, nubes, estación), fallos, carburador, magnetos.
 5. ATC ampliado; música y efectos con la API de sonido (psg_search).

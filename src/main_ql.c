@@ -22,8 +22,7 @@ int main(int argc, char **argv)
     plat_init();
     snd_init();
     for (;;) {
-        if (!sim_menu(acf, &hour)) break;
-        plat_path(scn, "demo.scn");
+        if (!sim_menu(acf, scn, &hour)) break;
         r = sim_init(scn, acf, hour);
         if (r) {
             gfx_init_surface(&s, plat_screen(), SCR_H);

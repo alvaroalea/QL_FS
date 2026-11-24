@@ -42,5 +42,5 @@ int  sim_init(const char *scn, const char *acf, int hour);
 void sim_reset(void);
 void sim_frame(void);
 void sim_render(void);       /* solo dibujo (lo usa el PC para las capturas) */
-int  sim_menu(char *acf, int *hour);
+int  sim_menu(char *acf, char *scn, int *hour);
 #endif

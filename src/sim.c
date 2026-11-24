@@ -28,14 +28,19 @@ void sim_reset(void)
     s32 sx = isin(rw->hdg), cx = icos(rw->hdg);
     flight_init(&sim.f, &sim.ac);
     /* 60 m despues del umbral, en el eje */
-    flight_place(&sim.f, rw->tx + (sx * 60 >> 14), rw->ty + (cx * 60 >> 14),
-                 ap->elev + (sim.ac.gear_h >> 16), rw->hdg, 0, 1);
+    if (sim.ac.eng_type == ENG_NONE)   /* planeador: empieza en el aire, 4 km antes del umbral */
+        flight_place(&sim.f, rw->tx - (sx * 4000 >> 14), rw->ty - (cx * 4000 >> 14),
+                     ap->elev + 600, rw->hdg, 30, 0);
+    else
+        flight_place(&sim.f, rw->tx + (sx * 60 >> 14), rw->ty + (cx * 60 >> 14),
+                     ap->elev + (sim.ac.gear_h >> 16), rw->hdg, 0, 1);
     sim.f.wind_e = 0; sim.f.wind_n = -FXI(3);      /* 6 nudos del norte */
     nav_init(&sim.r);
     sim.r.com = ap->twr;
     sim.r.obs1 = rw->hdg;
     atc_init(&sim.atc);
     sim.crash_shown = 0;
+    sim.nsteps = 0;
 }
 
 int sim_init(const char *scn, const char *acf, int hour)
@@ -50,7 +55,7 @@ int sim_init(const char *scn, const char *acf, int hour)
     memset(sim.scr, 0, SCR_BYTES);
     cam_zoom(&sim.cam, 256);
     sim.zoom = 256;
-    sim.cam.vis = 24000;
+    sim.cam.vis = sim.w.vis_km ? (s32)sim.w.vis_km * 1000L : 24000L;
     sim.clock = (u32)hour * 3600UL;
     sim.start_apt = 0;
     sim_reset();
@@ -122,6 +127,10 @@ static void controls_frame(void)
     if (hit(KEY_TAB)) sim.paused = !sim.paused;
     if (hit(KEY_ESC)) sim.quit = 1;
     if (f->crash && hit(KEY_ENTER)) sim_reset();
+    if (hit(KEY_R)) {                       /* siguiente aeropuerto de salida */
+        sim.start_apt = (sim.start_apt + (sh ? sim.w.napt - 1 : 1)) % sim.w.napt;
+        sim_reset();
+    }
 }
 
 /* --------------------------------------------------------------- camara */
@@ -204,6 +213,7 @@ static int build_status(void)
     u_cat(sim.status, "  ", 84);
     u_cat(sim.status, sim.ac.name, 84);
     if (sim.paused) u_cat(sim.status, "  PAUSA", 84);
+    if (sim.nsteps < 25 * 6) { u_cat(sim.status, "  ", 84); u_cat(sim.status, sim.w.apt[sim.start_apt].name, 84); }
     if (f->stall_warn) { u_cat(sim.status, "  PERDIDA!", 84); warn |= 1; }
     if (sim.ac.retract && !f->gear_down && f->agl < FXI(150) && !f->on_ground) { u_cat(sim.status, "  TREN!", 84); warn |= 2; }
     if (!f->auto_coord) u_cat(sim.status, "  TIMON MANUAL", 84);
@@ -271,11 +281,14 @@ void sim_frame(void)
 }
 
 /* --------------------------------------------------------------- menu */
-int sim_menu(char *acf, int *hour)
+int sim_menu(char *acf, char *scn, int *hour)
 {
     static const char *names[4] = { "planeador.acf", "mono.acf", "bimotor.acf", "reactor.acf" };
     static const char *desc[4] = { "1  PLANEADOR (SIN MOTOR)", "2  MONOMOTOR 160 HP, PASO FIJO",
                                    "3  BIMOTOR 2x300 HP, PASO VARIABLE", "4  REACTOR BIMOTOR" };
+    static const char *scns[2] = { "demo.scn", "iberia.scn" };
+    static const char *scnd[2] = { "E  ESCENARIO: VALLE DEL QL (DEMO)", "E  ESCENARIO: PENINSULA IBERICA" };
+    static int esc = 1;
     Surface s;
     int sel = 1, i, done = 0;
     char b[40];
@@ -289,6 +302,7 @@ int sim_menu(char *acf, int *hour)
         if (hit(KEY_3)) sel = 2;
         if (hit(KEY_4)) sel = 3;
         if (hit(KEY_T)) *hour = (*hour + (down(KEY_SHIFT) ? 23 : 1)) % 24;
+        if (hit(KEY_E)) esc ^= 1;
         if (hit(KEY_ENTER)) done = 1;
         if (hit(KEY_ESC)) return 0;
         gfx_clear(&s, fill_tab[F_BLACK]);
@@ -297,9 +311,12 @@ int sim_menu(char *acf, int *hour)
         for (i = 0; i < 4; i++) gfx_text(&s, 150, 60 + i * 12, desc[i], i == sel ? C_GREEN : C_WHITE);
         u_cpy(b, "T  HORA DE SALIDA: ", 40); u_catn(b, *hour, 2, '0', 40); u_cat(b, ":00", 40);
         gfx_text(&s, 150, 120, b, C_WHITE);
+        gfx_text(&s, 150, 132, scnd[esc], C_WHITE);
+        gfx_text(&s, 150, 175, "EN VUELO: R = SIGUIENTE AEROPUERTO", C_GREEN);
         gfx_text(&s, 150, 150, "ENTER = VOLAR     ESC = SALIR", C_GREEN);
         plat_frame();
     }
     plat_path(acf, names[sel]);
+    plat_path(scn, scns[esc]);
     return 1;
 }
