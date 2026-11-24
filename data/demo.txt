@@ -1,0 +1,55 @@
+; =====================================================================
+; Escenario de demostracion "VALLE DEL QL" (ficticio) para QFS
+; compilar con:  python3 tools/mkscen.py data/demo.txt build/demo.scn
+; coordenadas en metros: x = este, y = norte. Rumbos en grados.
+; =====================================================================
+NOMBRE "VALLE DEL QL"
+TESELA 14
+ELEV 200
+
+; --- aeropuerto principal: pista 31/13 con ILS 31 -------------------------
+AEROPUERTO LEQN "QL NORTE" 470 -30 200 ATIS 127.85 TWR 118.30 "ILS RUNWAY 31 APPROACH IN USE. LOCALIZER FREQUENCY 110.30."
+PISTA LEQN 31 1000 -800 310 1800 30 ILS 110.30 LUCES
+TORRE 470 -30
+HANGAR 520 40 40
+HANGAR 620 -60 40
+EDIFICIO 560 -150 80 25 10 40 BLANCO
+CAMPO CAMPO -1500 -2500 2500 -2500 2500 1500 -1500 1500
+CAMPO VERDEOSC 1500 1500 4500 1500 4500 4000 1500 4000
+
+; --- aeropuerto sur: pista 36/18, NDB -------------------------------------
+AEROPUERTO LEQS "QL SUR" 12200 -38000 200 ATIS 126.20 TWR 119.10 "LANDING AND DEPARTING RUNWAY 36."
+PISTA LEQS 36 12000 -38600 0 1200 25 LUCES
+TORRE 12200 -38000
+HANGAR 12280 -37800 0
+NDB QS 380 12000 -36000
+
+; --- aerodromo del lago --------------------------------------------------
+AEROPUERTO LEQL "AERODROMO DEL LAGO" -21000 -15000 200 ATIS 0 TWR 122.80 "UNICOM. NO ATIS."
+PISTA LEQL 27 -20600 -15300 270 750 18
+LAGO -26500 -12500 2600 14
+LAGO -3000 -24000 900 9
+
+; --- radioayudas ----------------------------------------------------------
+VOR QLV 113.20 -5000 -15000 DME
+VOR SUR 115.40 15000 -30000
+
+; --- ciudad ---------------------------------------------------------------
+CIUDAD 8000 6000 3000 2400 70 7
+CIUDAD 13500 -36000 1400 1000 25 3
+
+; --- carreteras y rio -----------------------------------------------------
+CARRETERA 700 -100 3000 2000 6500 4800 8000 6000 9500 2000 11000 -8000 12000 -20000 12500 -36500
+CARRETERA -21000 -14800 -12000 -9000 -5000 -4000 0 -500
+CARRETERA 8000 6000 2000 12000 -6000 20000
+RIO -35000 15000 -25000 9000 -15000 6000 -8000 1500 -2500 -4500 2500 -12000 6000 -20000 8000 -28000 6500 -36000 9000 -46000
+
+; --- montanas: sierra al este y al oeste ----------------------------------
+MONTANA 30000 -5000 5000 1600 8
+MONTANA 34000 -14000 6000 2100 8
+MONTANA 31000 -25000 4500 1400 7
+MONTANA 36000 4000 5500 1800 8
+MONTANA -40000 -30000 7000 1900 8
+MONTANA -38000 -42000 5000 1300 7
+MONTANA -45000 5000 6000 2200 8
+MONTANA 20000 25000 4000 900 6
