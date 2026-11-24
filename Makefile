@@ -12,7 +12,7 @@ COMUN   = src/fixmath.c src/tables.c src/gfx.c src/world.c src/view3d.c \
           src/aircraft.c src/flight.c src/nav.c src/atc.c src/util.c \
           src/panel.c src/sound.c src/sim.c
 
-all: datos prueba capturas
+all: datos prueba capturas cartas
 
 src/tables.c: tools/gentables.py
 	$(PY) tools/gentables.py src/tables.c
@@ -44,6 +44,10 @@ prueba: datos build/hosttest build/iberiatest
 	./build/hosttest
 	./build/iberiatest
 
+# cartas aeronauticas del escenario iberico (PDF para el manual)
+cartas: build/iberia.scn tools/cartas.py
+	$(PY) tools/cartas.py $(ESCALA) build/cartas
+
 capturas:
 	for f in build/shots/*.scr; do $(PY) tools/qlscr2png.py $$f $${f%.scr}.png; done
 
@@ -57,4 +61,4 @@ disco: datos
 clean:
 	rm -rf build/hosttest build/iberiatest build/shots build/disco
 
-.PHONY: all datos prueba capturas disco clean
+.PHONY: all datos prueba capturas cartas disco clean

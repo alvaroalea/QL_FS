@@ -89,7 +89,7 @@ CIRCULOS = [(27.95, -15.60, 0.21, 0.24), (28.11, -17.22, 0.10, 0.11), (27.74, -1
 # icao, nombre, lat, lon, ATIS, TWR, VOR (ident, MHz), pistas [(num, rumbo, largo, ancho, ILS, dx, dy)]
 AEROPUERTOS = [
     ("LEMD", "MADRID BARAJAS", 40.472, -3.561, 118.67, 118.15, ("MAD", 116.40),
-     [("32L", 324, 4100, 60, 109.90, 0, 0), ("36L", 181, 3500, 60, None, -2600, 1400)]),
+     [("32L", 324, 4100, 60, 109.90, 0, 0), ("18R", 181, 3500, 60, None, -2600, 1400)]),
     ("LEBL", "BARCELONA EL PRAT", 41.297, 2.078, 118.65, 118.10, ("BCN", 116.70),
      [("25R", 247, 3350, 60, 110.30, 0, 0), ("20", 200, 2500, 45, None, 1200, 1300)]),
     ("LEPA", "PALMA DE MALLORCA", 39.552, 2.739, 119.42, 118.30, ("PMI", 112.20),
@@ -186,6 +186,50 @@ CARRETERAS = {
 }
 
 
+def recip(num):
+    """designador de la cabecera opuesta: 32L -> 14R"""
+    n = int("".join(ch for ch in num if ch.isdigit()))
+    side = "".join(ch for ch in num if ch.isalpha())
+    side = {"L": "R", "R": "L", "C": "C"}.get(side, "")
+    return "%02d%s" % ((n + 17) % 36 + 1, side)
+
+
+def layout(ap):
+    """geometria completa de un aeropuerto (la usan el escenario y las cartas)"""
+    icao, name, lat, lon, atis, twr, vor, rwys = ap
+    cx, cy = P(lat, lon)
+    h0 = math.radians(rwys[0][1])
+    L = dict(icao=icao, name=name, lat=lat, lon=lon, atis=atis, twr=twr, arp=(cx, cy),
+             tower=(cx + math.cos(h0) * 450, cy - math.sin(h0) * 450),
+             vor=(vor[0], vor[1], P(lat + 0.012, lon - 0.012)), runways=[], taxiways=[], aprons=[])
+    for k, (num, hdg, ln, wd, ils, dx, dy) in enumerate(rwys):
+        h = math.radians(hdg)
+        d, r = (math.sin(h), math.cos(h)), (math.cos(h), -math.sin(h))
+        c = (cx + dx, cy + dy)
+        thr = (c[0] - d[0] * ln / 2, c[1] - d[1] * ln / 2)
+        end = (c[0] + d[0] * ln / 2, c[1] + d[1] * ln / 2)
+        rw = dict(num=num, rnum=recip(num), hdg=hdg, len=ln, wid=wd, ils=ils, thr=thr, end=end, c=c, d=d, r=r)
+        if ils:
+            rw["loc"] = (thr[0] + d[0] * (ln + 300), thr[1] + d[1] * (ln + 300))
+            rw["gs"] = (thr[0] + d[0] * 300, thr[1] + d[1] * 300)
+            rw["om"] = (thr[0] - d[0] * 7200, thr[1] - d[1] * 7200)
+            rw["mm"] = (thr[0] - d[0] * 1050, thr[1] - d[1] * 1050)
+        L["runways"].append(rw)
+        letter, off = "AB"[k], 180
+        a0 = (thr[0] + r[0] * off, thr[1] + r[1] * off)
+        a1 = (end[0] + r[0] * off, end[1] + r[1] * off)
+        L["taxiways"].append((letter, [a0, a1], 23))
+        for i, t in enumerate((0.0, 1 / 3, 2 / 3, 1.0)):
+            p = (thr[0] + d[0] * t * ln, thr[1] + d[1] * t * ln)
+            L["taxiways"].append(("%s%d" % (letter, i + 1),
+                                  [(p[0] + r[0] * wd / 2, p[1] + r[1] * wd / 2), (p[0] + r[0] * off, p[1] + r[1] * off)], 23))
+        if k == 0:
+            ac = (c[0] + r[0] * 330, c[1] + r[1] * 330)
+            L["aprons"].append((ac, 500, 120, hdg))
+            L["taxiways"].append(("%s5" % letter, [(c[0] + r[0] * off, c[1] + r[1] * off), (c[0] + r[0] * 270, c[1] + r[1] * 270)], 23))
+    return L
+
+
 def fmt(v):
     return ("%.0f" % v)
 
@@ -195,6 +239,7 @@ def build():
     lines = ["; Peninsula Iberica para QFS - generado por tools/iberia.py (escala %.2f)" % S,
              "; Datos aproximados de memoria: NO usar para navegacion real.",
              'NOMBRE "IBERIA"', "TESELA 14", "ELEV 0", ""]
+    obst = []          # pistas y aproximaciones finales: las montanas no pueden invadirlas
     land = [poly_ll(PENINSULA), poly_ll(MARRUECOS)] + [poly_ll(p) for p in ISLAS] + \
            [circle_ll(*c) for c in CIRCULOS]
     # aeropuertos: pistas a tamano real, posicion a escala
@@ -212,6 +257,15 @@ def build():
             lines.append("PISTA %s %s %s %s %d %d %d%s LUCES" % (icao, num, fmt(thx), fmt(thy), hdg, ln, wd,
                                                                (" ILS %.2f" % ils) if ils else ""))
             land.append(LineString([(thx, thy), (thx + hx * ln, thy + hy * ln)]).buffer(900))
+            obst.append(LineString([(thx, thy), (thx + hx * ln, thy + hy * ln)]).buffer(1500))
+            for sgn, (bx_, by_) in ((-1, (thx, thy)), (1, (thx + hx * ln, thy + hy * ln))):
+                obst.append(LineString([(bx_, by_), (bx_ + sgn * hx * 10 * 1852, by_ + sgn * hy * 10 * 1852)]).buffer(800))
+        lay = layout((icao, name, lat, lon, atis, twr, vor, rwys))
+        for tname, pts, w in lay["taxiways"]:
+            lines.append("CALLE %d %s   ; %s" % (w, " ".join("%s %s" % (fmt(x), fmt(y)) for x, y in pts), tname))
+            land.append(LineString(pts).buffer(200))
+        for (ax_, ay_), aL, aD, ah in lay["aprons"]:
+            lines.append("PLATAFORMA %s %s %d %d %d" % (fmt(ax_), fmt(ay_), aL, aD, ah))
         lines.append("TORRE %s %s" % (fmt(tx), fmt(ty)))
         lines.append("HANGAR %s %s %d" % (fmt(tx + math.sin(h0) * 200), fmt(ty + math.cos(h0) * 200), rwys[0][1]))
         lines.append("EDIFICIO %s %s 120 30 14 %d BLANCO" % (fmt(tx - math.sin(h0) * 250), fmt(ty - math.cos(h0) * 250),
@@ -242,6 +296,17 @@ def build():
     x, y = P(41.403, 2.190)
     lines.append("EDIFICIO %s %s 40 40 144 0 NARANJA" % (fmt(x), fmt(y)))
     lines.append("")
+    obst_u = unary_union(obst)
+
+    def montana(x, y, r, h, n):
+        """cono recortado para no invadir pistas ni aproximaciones"""
+        d = obst_u.distance(Point(x, y))
+        if d < r:
+            r = d
+        if r < 1500:
+            return
+        lines.append("MONTANA %s %s %s %d %d" % (fmt(x), fmt(y), fmt(r), h, n))
+
     # montanas: conos a lo largo de cada sistema
     for nombre, (pts, rkm) in SISTEMAS.items():
         lines.append("; " + nombre)
@@ -253,14 +318,13 @@ def build():
             for k in range(n):
                 t = k / n
                 h = (h0 + (h1 - h0) * t) * (0.85 + 0.15 * random.random())
-                lines.append("MONTANA %s %s %s %d 8" % (fmt(x0 + (x1 - x0) * t), fmt(y0 + (y1 - y0) * t),
-                                                        fmt(r * (0.8 + 0.4 * random.random())), h))
+                montana(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, r * (0.8 + 0.4 * random.random()), h, 8)
         la, lo, h = pts[-1]
         x, y = P(la, lo)
-        lines.append("MONTANA %s %s %s %d 8" % (fmt(x), fmt(y), fmt(r), h))
+        montana(x, y, r, h, 8)
     for la, lo, h, rkm in PICOS:
         x, y = P(la, lo)
-        lines.append("MONTANA %s %s %s %d 9" % (fmt(x), fmt(y), fmt(rkm * 1000 * S), h))
+        montana(x, y, rkm * 1000 * S, h, 9)
     lines.append("")
     for nombre, pts in RIOS.items():
         lines.append("; rio " + nombre)

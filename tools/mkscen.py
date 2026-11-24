@@ -236,6 +236,28 @@ class Scen:
                 o = Obj(OBJ_GROUND, cx, cy, s.elev, 0, lod=50)
                 o.face(attr(fill), [o.vert(px_, py_) for px_, py_ in pts])
                 s.objs.append(o)
+            elif cmd == "CALLE":
+                # CALLE ancho x1 y1 x2 y2 ... : calle de rodaje (tramos rectos)
+                w = f(0) / 2
+                pts = [(f(i), f(i + 1)) for i in range(1, len(a) - 1, 2)]
+                cx = sum(p[0] for p in pts) / len(pts)
+                cy = sum(p[1] for p in pts) / len(pts)
+                o = Obj(OBJ_GROUND, cx, cy, s.elev, 0, lod=20)
+                for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+                    L = math.hypot(x1 - x0, y1 - y0) or 1
+                    nx, ny = -(y1 - y0) / L * w, (x1 - x0) / L * w
+                    o.face(attr(FILLS["GRISOSC"]), [o.vert(x0 + nx, y0 + ny), o.vert(x0 - nx, y0 - ny),
+                                                     o.vert(x1 - nx, y1 - ny), o.vert(x1 + nx, y1 + ny)])
+                s.objs.append(o)
+            elif cmd == "PLATAFORMA":
+                # PLATAFORMA x y largo fondo rumbo : plataforma de estacionamiento
+                x, y, L, D, r = f(0), f(1), f(2), f(3), math.radians(f(4))
+                dx, dy = math.sin(r), math.cos(r)
+                px, py = dy, -dx
+                o = Obj(OBJ_GROUND, x, y, s.elev, 0, lod=20)
+                o.face(attr(FILLS["GRISOSC"]), [o.vert(x + sx * dx * L / 2 + sy * px * D / 2, y + sx * dy * L / 2 + sy * py * D / 2)
+                                                 for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+                s.objs.append(o)
             elif cmd == "MONTANA":
                 x, y, r, h = f(0), f(1), f(2), f(3)
                 n = int(f(4)) if len(a) > 4 else 7

@@ -15,6 +15,11 @@ Microsoft Flight Simulator 1.0 (1982). C89 para c68/XTC68 (`qcc`) y ensamblador 
       Datos aproximados de memoria (no para navegación real).
 - [x] Motor: visibilidad por escenario (40 km en Iberia), caché de 49 teselas, bruma en el horizonte,
       selector de escenario en el menú (E), tecla R para cambiar de aeropuerto, planeador sale en el aire.
+- [x] Cartas aeronáuticas en PDF para el manual (`make cartas`, `tools/cartas.py`):
+      carta en ruta A3 apaisado (1 pág.), plano de aeródromo + SID + STAR/ILS en A5 vertical (39 pág.),
+      cartas visuales en A4 apaisado (13 pág.). Salen de los mismos datos que el escenario.
+- [x] Escenario: calles de rodaje (A/B + A1..A5) y plataforma en cada aeropuerto; montañas recortadas para
+      no invadir pistas ni 10 NM de aproximación final; designador de Madrid corregido (18R/36L).
 - [ ] Compilar con `qcc` (`make -f Makefile.ql SOLO_C=1`, después con ensamblador).
 - [ ] Validar en QL real / sQLux (lista de abajo).
 
@@ -25,7 +30,7 @@ src/        qfs.h fixmath.c tables.c(gen) gfx.c view3d.c world.c aircraft.c flig
             util.c panel.c sound.c sim.c
             ql68k.s (fxmul, hspan, line, memcpy, xform3)   qdos68k.s (KEYROW, modo 4, reloj 50 Hz)
             platform_ql.c main_ql.c (QL)   platform_host.c (PC)
-tools/      gentables.py mkscen.py mkaviones.py qlscr2png.py iberia.py mapa_scn.py
+tools/      gentables.py mkscen.py mkaviones.py qlscr2png.py iberia.py mapa_scn.py cartas.py
 data/       demo.txt, iberia.txt (escenarios fuente)  planeador/mono/bimotor/reactor.acf
 tests/      hosttest.c iberiatest.c
 Makefile    PC: datos, pruebas, capturas, disco (nombres QDOS en build/disco)
@@ -37,6 +42,7 @@ Makefile.ql QL con qcc
 ```
 make                         # PC: tablas, escenario, aviones, pruebas y capturas PNG
 make ESCALA=1.0              # Iberia a tamaño real (por defecto 0.5)
+make cartas                  # PDF en build/cartas
 make disco                   # build/disco: demo_scn, iberia_scn, mono_acf, ...
 make -f Makefile.ql SOLO_C=1 # QL sin rutinas gráficas en ensamblador
 make -f Makefile.ql          # QL completo -> build/qfs
