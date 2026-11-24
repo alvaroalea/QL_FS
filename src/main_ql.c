@@ -1,11 +1,13 @@
 /* main_ql.c - punto de entrada en el QL.
- *   EX flp1_qfs ; "flp1_"     (el argumento opcional es el dispositivo de datos)
+ *   EXEC_W flp1_qfs   (el dispositivo de datos va en la variable D$ de SuperBASIC; sin
+ *   Toolkit II no se puede pasar texto tras EXEC_W: cuelga el sistema)
  */
 #include "sim.h"
 #include "platform.h"
 #include "sound.h"
 #include "gfx.h"
 #include <string.h>
+#include "qlvars.h"
 
 long _stack = 32768L;                  /* c68: pila de la tarea */
 char _prog_name[] = "QFS";
@@ -17,8 +19,9 @@ int main(int argc, char **argv)
     char scn[48], acf[48];
     int hour, r;
     Surface s;
+    char v[16];
 
-    if (argc > 1 && strlen(argv[1]) < 7) strcpy(plat_dev, argv[1]);
+    if (ql_basic_str("D", v, sizeof v) && v[0] && strlen(v) < 7) strcpy(plat_dev, v);
     plat_init();
     snd_init();
     for (;;) {

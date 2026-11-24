@@ -257,9 +257,9 @@ def build():
             lines.append("PISTA %s %s %s %s %d %d %d%s LUCES" % (icao, num, fmt(thx), fmt(thy), hdg, ln, wd,
                                                                (" ILS %.2f" % ils) if ils else ""))
             land.append(LineString([(thx, thy), (thx + hx * ln, thy + hy * ln)]).buffer(900))
-            obst.append(LineString([(thx, thy), (thx + hx * ln, thy + hy * ln)]).buffer(1500))
+            obst.append(LineString([(thx, thy), (thx + hx * ln, thy + hy * ln)]).buffer(2500))
             for sgn, (bx_, by_) in ((-1, (thx, thy)), (1, (thx + hx * ln, thy + hy * ln))):
-                obst.append(LineString([(bx_, by_), (bx_ + sgn * hx * 10 * 1852, by_ + sgn * hy * 10 * 1852)]).buffer(800))
+                obst.append(LineString([(bx_, by_), (bx_ + sgn * hx * 12 * 1852, by_ + sgn * hy * 12 * 1852)]).buffer(2200))
         lay = layout((icao, name, lat, lon, atis, twr, vor, rwys))
         for tname, pts, w in lay["taxiways"]:
             lines.append("CALLE %d %s   ; %s" % (w, " ".join("%s %s" % (fmt(x), fmt(y)) for x, y in pts), tname))

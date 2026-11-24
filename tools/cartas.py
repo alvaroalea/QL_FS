@@ -1316,7 +1316,9 @@ def check_approaches():
 if __name__ == "__main__":
     os.makedirs(OUTDIR, exist_ok=True)
     enroute(os.path.join(OUTDIR, "QFS_Carta_Ruta_A3.pdf"))
-    airports_a5(os.path.join(OUTDIR, "QFS_Aeropuertos_A5.pdf"))
+    import cartas_a5
+    n = cartas_a5.build(os.path.join(OUTDIR, "QFS_Aeropuertos_A5.pdf"))
+    print("A5: %d paginas" % n)
     vfr_a4(os.path.join(OUTDIR, "QFS_Cartas_Visuales_A4.pdf"))
     print("cartas en", OUTDIR)
     for b in check_approaches():

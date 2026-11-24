@@ -9,8 +9,18 @@
         .globl  _plat_timer_on
         .globl  _plat_timer_off
         .globl  _plat_tickcnt
+        .globl  _ql_sysvars
 
 ; ---------------------------------------------------------------- QDOS
+; long ql_sysvars(void): MT.INF, A0 = variables del sistema (para leer variables de SuperBASIC, qlvars.h)
+_ql_sysvars:
+        movem.l d2-d7/a2-a6,-(a7)
+        moveq   #0,d0
+        trap    #1
+        move.l  a0,d0
+        movem.l (a7)+,d2-d7/a2-a6
+        rts
+
 ; int plat_keyrow(int row)  -> bits de la fila (1 = pulsada)
 _plat_keyrow:
         move.l  4(a7),d0

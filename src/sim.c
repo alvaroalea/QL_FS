@@ -290,13 +290,14 @@ int sim_menu(char *acf, char *scn, int *hour)
     static const char *scnd[2] = { "E  ESCENARIO: VALLE DEL QL (DEMO)", "E  ESCENARIO: PENINSULA IBERICA" };
     static int esc = 1;
     Surface s;
-    int sel = 1, i, done = 0;
+    int sel = 1, i, done = 0, dirty = 1, o_sel, o_hour, o_esc;
     char b[40];
     u8 *scr = plat_screen();
     gfx_init_surface(&s, scr, SCR_H);
     *hour = 12;
     while (!done) {
         read_keys();
+        o_sel = sel; o_hour = *hour; o_esc = esc;
         if (hit(KEY_1)) sel = 0;
         if (hit(KEY_2)) sel = 1;
         if (hit(KEY_3)) sel = 2;
@@ -305,6 +306,9 @@ int sim_menu(char *acf, char *scn, int *hour)
         if (hit(KEY_E)) esc ^= 1;
         if (hit(KEY_ENTER)) done = 1;
         if (hit(KEY_ESC)) return 0;
+        if (sel != o_sel || *hour != o_hour || esc != o_esc) dirty = 1;
+        if (!dirty) { plat_frame(); continue; }     /* solo se redibuja al cambiar algo (sin parpadeo en el QL) */
+        dirty = 0;
         gfx_clear(&s, fill_tab[F_BLACK]);
         gfx_text(&s, 150, 20, "QFS - SIMULADOR DE VUELO PARA SINCLAIR QL", C_WHITE);
         gfx_text(&s, 150, 30, "=========================================", C_RED);

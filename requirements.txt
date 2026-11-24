@@ -1,0 +1,4 @@
+reportlab
+shapely
+matplotlib
+pillow

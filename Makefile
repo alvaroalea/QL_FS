@@ -1,64 +1,84 @@
-# QFS - Makefile del PC: datos, pruebas y capturas (no genera el binario del QL)
-#   make datos     -> tablas, escenario de demo y aviones
-#   make prueba    -> compila y ejecuta las pruebas de fisica/navegacion/render
-#   make capturas  -> pasa las capturas de pantalla QL a PNG
-# El binario del QL se compila con Makefile.ql (qcc de XTC68).
+# QFS - compilacion cruzada para el Sinclair QL con XTC68 (qcc + as68)
+#   make            -> build/qfs.img y build/qfs.win (por defecto)
+#   make build/qfs  -> solo el ejecutable QDOS
+#   make SOLO_C=1   -> sin ensamblador (para aislar fallos de ql68k.s)
+#
+# Requiere: qcc en el PATH y las cabeceras/librerias de C68 en
+# /usr/local/share/qdos (como en el port de Elite).
 
-PY      = python3
-CC      = gcc
-CFLAGS  = -std=c89 -pedantic -Wall -Wextra -Wno-unused-parameter -DHOST -O1 -g
+# Objetivo por defecto: las dos imagenes (build/qfs.img y build/qfs.win)
+all: img win
 
-COMUN   = src/fixmath.c src/tables.c src/gfx.c src/world.c src/view3d.c \
-          src/aircraft.c src/flight.c src/nav.c src/atc.c src/util.c \
-          src/panel.c src/sound.c src/sim.c
+CC      = qcc
+ASMDEFS = -DUSE_ASM_FXMUL -DUSE_ASM_GFX -DUSE_ASM_XFORM
+ifdef SOLO_C
+ASMDEFS =
+ASMOBJ  = src/qdos68k.o
+else
+ASMOBJ  = src/ql68k.o src/qdos68k.o
+endif
+CFLAGS  = -O -Isrc -DPLAT_QL $(ASMDEFS)
 
-all: datos prueba capturas cartas
+SRC     = src/main_ql.c src/sim.c src/fixmath.c src/tables.c src/gfx.c \
+          src/world.c src/view3d.c src/aircraft.c src/flight.c src/nav.c \
+          src/atc.c src/util.c src/panel.c src/sound.c src/platform_ql.c src/ql_envsetup.c
+OBJ     = $(SRC:.c=.o) $(ASMOBJ)
 
-src/tables.c: tools/gentables.py
-	$(PY) tools/gentables.py src/tables.c
-
-datos: src/tables.c build/demo.scn build/iberia.scn data/mono.acf
-
-build/demo.scn: data/demo.txt tools/mkscen.py
+build/qfs: $(OBJ)
 	@mkdir -p build
-	$(PY) tools/mkscen.py data/demo.txt build/demo.scn
+	$(CC) -o build/qfs $(OBJ)
 
-# Peninsula Iberica: ESCALA=0.5 (por defecto) o ESCALA=1.0 (tamano real)
-ESCALA ?= 0.5
-build/iberia.scn: tools/iberia.py tools/mkscen.py
+src/%.o: src/%.c src/*.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+src/%.o: src/%.s
+	$(CC) -c $< -o $@
+
+# ---------------------------------------------------------------- imagenes de disco ----
+#   make img   -> build/qfs.img (disquete DD 720 KB, arranca desde flp1_)
+#   make win   -> build/qfs.win (disco duro QXL.WIN, arranca desde win1_)
+#   make disk  -> las dos
+# Los datos salen de la raiz del proyecto (Makefile.pc: make -f Makefile.pc datos); en QDOS el punto es subrayado
+# (demo.scn -> demo_scn) y qltools/qxltool lo traducen solo. No se pasa texto tras EXEC_W (cuelga sin Toolkit II):
+# la unidad de datos va en la variable D$ de SuperBASIC, que lee main_ql.c.
+QLTOOLS ?= qltools
+QXLTOOL ?= qxltool
+WINMB   ?= 4
+DATOS    = build/demo.scn build/iberia.scn data/planeador.acf data/mono.acf data/bimotor.acf data/reactor.acf
+
+DISCOFILES = boot qfs demo_scn iberia_scn planeador_acf mono_acf bimotor_acf reactor_acf
+
+$(DATOS):
+	$(MAKE) -f Makefile.pc datos
+
+build/boot_flp1 build/boot_win1: Makefile
 	@mkdir -p build
-	$(PY) tools/iberia.py $(ESCALA) build/iberia.scn data/iberia.txt
-	$(PY) tools/mapa_scn.py build/iberia.scn build/iberia_mapa.png 1100
+	printf '100 REMark QFS - simulador de vuelo\n110 D$$ = "$(patsubst build/boot_%,%,$@)_"\n120 MODE 4\n130 EXEC_W $(patsubst build/boot_%,%,$@)_qfs\n' > $@
 
-data/mono.acf: tools/mkaviones.py
-	$(PY) tools/mkaviones.py data
-
-build/hosttest: $(COMUN) src/platform_host.c tests/hosttest.c src/*.h
-	$(CC) $(CFLAGS) $(COMUN) src/platform_host.c tests/hosttest.c -lm -o $@
-
-build/iberiatest: $(COMUN) src/platform_host.c tests/iberiatest.c src/*.h
-	$(CC) $(CFLAGS) $(COMUN) src/platform_host.c tests/iberiatest.c -o $@
-
-prueba: datos build/hosttest build/iberiatest
-	@mkdir -p build/shots
-	./build/hosttest
-	./build/iberiatest
-
-# cartas aeronauticas del escenario iberico (PDF para el manual)
-cartas: build/iberia.scn tools/cartas.py
-	$(PY) tools/cartas.py $(ESCALA) build/cartas
-
-capturas:
-	for f in build/shots/*.scr; do $(PY) tools/qlscr2png.py $$f $${f%.scr}.png; done
-
-# disco para el QL: nombres QDOS (punto -> subrayado)
-disco: datos
+# qltools/qxltool usan el nombre del fichero sin directorio: se prepara una carpeta con los nombres de disco
+build/disco/qfs: build/qfs $(DATOS)
 	@mkdir -p build/disco
-	cp build/demo.scn build/disco/demo_scn
-	cp build/iberia.scn build/disco/iberia_scn
-	for f in data/*.acf; do b=$$(basename $$f .acf); cp $$f build/disco/$${b}_acf; done
+	cp build/qfs build/disco/qfs
+	for f in $(DATOS); do b=$$(basename $$f); cp $$f build/disco/$${b%.*}_$${b##*.}; done
+
+build/qfs.img: build/disco/qfs build/boot_flp1
+	rm -f $@
+	$(QLTOOLS) $@ -fdd QFS > /dev/null
+	cp build/boot_flp1 build/disco/boot
+	cd build/disco && $(QLTOOLS) ../qfs.img -W $(DISCOFILES) > /dev/null
+	@echo "$@:"; $(QLTOOLS) $@ -d
+
+build/qfs.win: build/disco/qfs build/boot_win1
+	rm -f $@
+	cp build/boot_win1 build/disco/boot
+	( for f in $(DISCOFILES); do echo "wr build/disco/$$f $$f"; done; \
+	  echo ls; echo quit ) | $(QXLTOOL) -w $@ $(WINMB) QFS | tail -12
+
+img: build/qfs.img
+win: build/qfs.win
+disk: img win
 
 clean:
-	rm -rf build/hosttest build/iberiatest build/shots build/disco
+	rm -f src/*.o build/qfs build/qfs.img build/qfs.win build/boot_flp1 build/boot_win1
 
-.PHONY: all datos prueba capturas cartas disco clean
+.PHONY: all clean img win disk
