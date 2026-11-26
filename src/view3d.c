@@ -17,7 +17,9 @@ int xform_pre(const Camera *c, const Obj *o, s32 dmax, s32 *res);   /* prologo d
 #endif
 
 #ifdef USE_ASM_3D
-void proj_all(const s32 *v, int n, s32 near_z, int fx, int fy, s32 *out, u8 *front);
+int proj_all(const s32 *v, int n, s32 near_z, int fx, int fy, s32 *out, u8 *front);
+void proj_pt(const s32 *v, int fx, int fy, s32 *out);
+void draw_lights(Surface *s, const s32 *vw, const u8 *idx, int n, int step, int shift, s32 near_z, int fx, int fy, int col, int dbl);
 int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy_, s32 *out, int cull);
 #endif
 
@@ -26,9 +28,6 @@ int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy_, s32 *out, 
 #define MAXITEMS 256
 #ifndef BEHIND_CULL
 #define BEHIND_CULL 1      /* descartar objetos detras de la camara antes de ordenarlos */
-#endif
-#ifndef SOLID_LOD
-#define SOLID_LOD 5        /* alcance de dibujo de los solidos pequenos (edificios, lod < 128) en octavos de su lod: 5/8; 8 = sin recorte */
 #endif
 #ifndef LIGHT_U0
 #define LIGHT_U0 0         /* a partir de que escala U (cada U dobla la distancia) se reducen las luces: 1 de 2, 1 de 4... */
@@ -144,36 +143,27 @@ void view_sky(Surface *s, const Camera *c)
     }
 }
 
-/* ------------------------------------------------ utilidades de recorte */
-static int nb(s32 v)                         /* bits significativos (busqueda binaria, no bit a bit) */
+/* ------------------------------------------------ proyeccion */
+/* sx = VIEW_CX + x*fx/z, sy = VIEW_CY - y*fy/z (z >= 1), division truncada hacia cero. Si x, y o z no caben en 16 bits con signo se
+ * desplazan los tres a la vez hasta que quepan (la razon se conserva). En el QL es pj_xy (ql68k.s), que hace exactamente esto con
+ * MULS y DIVS (o dos DIVU si el cociente no cabe en 16 bits). */
+#ifndef USE_ASM_3D
+static void proj_pt(const s32 *v, int fx, int fy, s32 *out)
 {
-    int n = 0;
-    if (v < 0) v = -v;
-    if (v >> 16) { v >>= 16; n = 16; }
-    if (v >> 8) { v >>= 8; n += 8; }
-    if (v >> 4) { v >>= 4; n += 4; }
-    if (v >> 2) { v >>= 2; n += 2; }
-    if (v >> 1) { v >>= 1; n += 1; }
-    return n + (int)v;
+    s32 x = v[0], y = v[1], z = v[2];
+    while (z > 32767L || x > 32767L || x < -32768L || y > 32767L || y < -32768L) { x >>= 1; y >>= 1; z >>= 1; }
+    if (z == 0) z = 1;
+    out[0] = VIEW_CX + (x * fx) / z;
+    out[1] = VIEW_CY - (y * fy) / z;
 }
-
-s32 muldiv(s32 a, s32 b, s32 d)              /* a*b/d sin desbordar (exportada: la llama proj_all en ensamblador) */
-{
-    int k = 0;
-    s32 q = mdq(a, b, d);                    /* casi siempre cabe: 1 MULS + 1 DIVS */
-    if (q != MDQ_BIG) return q;
-    if (d == 0) return 0;
-    while (nb(a) + nb(b) > 30) {
-        if (ABS(b) > ABS(a)) { b >>= 1; d >>= 1; if (!d) return 0; }
-        else { a >>= 1; k++; }
-    }
-    return ((a * b) / d) << k;
-}
+#endif
 
 static void project(const Camera *c, s32 x, s32 y, s32 z, s32 *sx, s32 *sy)
 {
-    *sx = VIEW_CX + muldiv(x, c->fx, z);
-    *sy = VIEW_CY - muldiv(y, c->fy, z);
+    s32 v[3], o[2];
+    v[0] = x; v[1] = y; v[2] = z;
+    proj_pt(v, c->fx, c->fy, o);
+    *sx = o[0]; *sy = o[1];
 }
 
 /* proyeccion de todos los vertices del objeto, una sola vez (las caras comparten vertices) */
@@ -198,15 +188,30 @@ typedef char chk_view_h2[(VIEW_H / 2 == 48) ? 1 : -1];
 #endif
 
 #ifndef USE_ASM_3D
-void proj_all(const s32 *v, int n, s32 near_z, int fx, int fy, s32 *out, u8 *front)
+int proj_all(const s32 *v, int n, s32 near_z, int fx, int fy, s32 *out, u8 *front)
 {
-    int k;
+    int k, cnt = 0;
     for (k = 0; k < n; k++, v += 3, out += 2) {
         if (v[2] >= near_z) {
             front[k] = 1;
-            out[0] = VIEW_CX + muldiv(v[0], fx, v[2]);
-            out[1] = VIEW_CY - muldiv(v[1], fy, v[2]);
+            proj_pt(v, fx, fy, out);
+            cnt++;
         } else front[k] = 0;
+    }
+    return cnt;
+}
+
+/* luces: el vertice vw[idx[k] >> shift] de cada `step` indices, un punto (dos si dbl) de color col; en el QL es draw_lights (ql68k.s) */
+void draw_lights(Surface *s, const s32 *vw, const u8 *idx, int n, int step, int shift, s32 nz, int fx, int fy, int col, int dbl)
+{
+    int k;
+    s32 o[2];
+    for (k = 0; k < n; k += step) {
+        const s32 *p = vw + (idx[k] >> shift) * 3;
+        if (p[2] < nz) continue;
+        proj_pt(p, fx, fy, o);
+        gfx_pixel(s, (int)o[0], (int)o[1], col);
+        if (dbl) gfx_pixel(s, (int)o[0] + 1, (int)o[1], col);
     }
 }
 #endif
@@ -230,8 +235,8 @@ static int clip_project(const Camera *c, const u8 *idx, int n, s32 *out)
         if (ia) { cl[m * 3] = a[0]; cl[m * 3 + 1] = a[1]; cl[m * 3 + 2] = a[2]; m++; }
         if (ia != ib) {
             t = b[2] - a[2];
-            cl[m * 3] = a[0] + muldiv(b[0] - a[0], near_z - a[2], t);
-            cl[m * 3 + 1] = a[1] + muldiv(b[1] - a[1], near_z - a[2], t);
+            cl[m * 3] = lerp_div(a[0], b[0], near_z - a[2], t);
+            cl[m * 3 + 1] = lerp_div(a[1], b[1], near_z - a[2], t);
             cl[m * 3 + 2] = near_z;
             m++;
         }
@@ -330,13 +335,13 @@ static void draw_seg(Surface *s, const Camera *c, int i0, int i1, int col)
     if (a[2] < near_z && b[2] < near_z) return;
     if (a[2] < near_z) {
         t = b[2] - a[2];
-        a[0] += muldiv(b[0] - a[0], near_z - a[2], t);
-        a[1] += muldiv(b[1] - a[1], near_z - a[2], t);
+        a[0] = lerp_div(a[0], b[0], near_z - a[2], t);
+        a[1] = lerp_div(a[1], b[1], near_z - a[2], t);
         a[2] = near_z;
     } else if (b[2] < near_z) {
         t = a[2] - b[2];
-        b[0] += muldiv(a[0] - b[0], near_z - b[2], t);
-        b[1] += muldiv(a[1] - b[1], near_z - b[2], t);
+        b[0] = lerp_div(b[0], a[0], near_z - b[2], t);
+        b[1] = lerp_div(b[1], a[1], near_z - b[2], t);
         b[2] = near_z;
     }
     project(c, a[0], a[1], a[2], &x0, &y0);
@@ -399,7 +404,7 @@ static int xform_pre(const Camera *c, const Obj *o, s32 dmax, s32 *res)
 static int xform_obj(const Camera *c, const Obj *o, s32 dmax)
 {
     s32 res[4];
-    int U, k, n = o->nv;
+    int U, n = o->nv;
     s16 rx, ry, rz;
     const s16 *v = o->v;
     if (n > MAXV) n = MAXV;
@@ -421,11 +426,8 @@ static int xform_obj(const Camera *c, const Obj *o, s32 dmax)
     if (near_z < 1) near_z = 1;
     obj_u = U;
     vstats.verts += n;
-    /* descarte rapido: todo detras de la camara */
-    for (k = 0; k < n; k++) if (vw[k * 3 + 2] >= near_z) break;
-    if (k == n) return 0;
-    proj_all(vw, n, near_z, c->fx, c->fy, pxy, pfront);
-    return 1;
+    /* proj_all devuelve cuantos vertices estan delante: ninguno = todo detras de la camara */
+    return proj_all(vw, n, near_z, c->fx, c->fy, pxy, pfront) != 0;
 }
 
 #define SORTF 64
@@ -464,8 +466,7 @@ static void draw_sorted(Surface *s, const Camera *c, const Obj *o)
 static void draw_obj(Surface *s, const Camera *c, const Obj *o)
 {
     const u8 *f = o->f;
-    int i, k, n, col;
-    s32 sx, sy;
+    int i, k, n;
     if (o->type == OBJ_SOLID && (o->flags & OF_SORT)) { draw_sorted(s, c, o); return; }
     for (i = 0; i < o->nf; i++) {
         n = f[0];
@@ -478,14 +479,7 @@ static void draw_obj(Surface *s, const Camera *c, const Obj *o)
         case OBJ_LIGHTS:
             /* las luces se guardan en orden: el vertice j-esimo transformado es
              * el (j*light_step)-esimo del objeto (ver xform_obj) */
-            col = f[1] & 3;
-            for (k = 0; k < n; k += light_step) {
-                s32 *p = vw + (f[2 + k] >> light_shift) * 3;
-                if (p[2] < near_z) continue;
-                project(c, p[0], p[1], p[2], &sx, &sy);
-                gfx_pixel(s, (int)sx, (int)sy, col);
-                if (obj_u == 0) gfx_pixel(s, (int)sx + 1, (int)sy, col);
-            }
+            draw_lights(s, vw, f + 2, n, light_step, light_shift, near_z, c->fx, c->fy, f[1] & 3, obj_u == 0);
             break;
         }
         f += 2 + n;
@@ -499,37 +493,50 @@ static int n_items, next_item;            /* lista ordenada del cuadro y primer 
 /* Primera mitad de view_world: reune los objetos visibles y los ordena (de lejos a cerca); devuelve el coste estimado de
  * dibujarlos (vertices + caras). Se pueden dibujar en uno o varios cuadros con view_world_step. Los tiles quedan protegidos
  * del desalojo mientras no se vuelva a llamar a world_tiles_near (solo la vista lo hace). */
+/* reune en items[] los objetos de una tesela que pueden verse (alcance, luz, nubes, detras de la camara) */
+static int gather_tile(const Tile *t, const Camera *c, int ni, s32 cx, s32 cy, s32 dmax)
+{
+    const Obj *o = t->obj;
+    int k, night = c->light == LIGHT_NIGHT, above = c->cloud_base && (c->z >> 8) > c->cloud_top;
+    s32 d, dx, dy, cz = c->z >> 8, dm = dmax;
+    s16 m6 = c->m[6], m7 = c->m[7], m8 = c->m[8];
+    Item *it = &items[ni];
+    for (k = t->nobj; k > 0; k--, o++) {
+        dx = o->ox - cx; if (dx < 0) dx = -dx;
+        dy = o->oy - cy; if (dy < 0) dy = -dy;
+        d = dx > dy ? dx : dy;
+        if (d > o->reach) continue;                              /* fuera del alcance propio (lod) */
+        if (d - (s32)o->radius > dm) continue;                   /* y de la visibilidad */
+        if (night) {
+            if (o->type != OBJ_LIGHTS && !(o->flags & OF_NIGHT)) continue;
+        } else if (o->type == OBJ_LIGHTS && !(o->flags & OF_DAYLIGHT) && c->light == LIGHT_DAY)
+            continue;
+        if (above && o->type != OBJ_SOLID) continue;
+        /* detras de la camara (con el radio de margen): ni se transforma ni entra en la lista que se ordena */
+        if (BEHIND_CULL && (MULS16((o->ox - cx) >> 3, m6) + MULS16((o->oy - cy) >> 3, m7) +
+             MULS16((o->oz - cz) >> 3, m8)) >> 14 < -(((s32)o->radius >> 3) + 16)) continue;
+        if (ni >= MAXITEMS) break;
+        it->o = o;
+        if (o->type == OBJ_GROUND) it->key = 0x40000000L + ((s32)o->radius << 8);
+        else if (o->type == OBJ_LINES) it->key = 0x40000000L - 1 - d;
+        else it->key = d;
+        it++; ni++;
+    }
+    return ni;
+}
+
 s32 view_world_begin(const Camera *c, World *w)
 {
     Tile *tl[TILE_CACHE];
-    int nt, i, k, ni = 0, j;
+    int nt, i, ni = 0, j;
     s32 total = 0;
-    s32 dmax = c->vis, cx = c->x >> 8, cy = c->y >> 8, d;
+    s32 dmax = c->vis, cx = c->x >> 8, cy = c->y >> 8;
     Item t;
     vstats.objs = vstats.faces = vstats.lines = vstats.verts = 0;
     nt = world_tiles_near(w, cx, cy, dmax, tl, TILE_CACHE);
     vstats.tiles = nt;
     /* 1) objetos de suelo: primero los grandes (campos, lagos), luego pistas */
-    for (i = 0; i < nt; i++)
-        for (k = 0; k < tl[i]->nobj; k++) {
-            const Obj *o = &tl[i]->obj[k];
-            if (ni >= MAXITEMS) break;
-            if (c->light == LIGHT_NIGHT) {
-                if (o->type != OBJ_LIGHTS && !(o->flags & OF_NIGHT)) continue;
-            } else if (o->type == OBJ_LIGHTS && !(o->flags & OF_DAYLIGHT) && c->light == LIGHT_DAY)
-                continue;
-            if (c->cloud_base && (c->z >> 8) > c->cloud_top && o->type != OBJ_SOLID) continue;
-            d = MAX(ABS(o->ox - cx), ABS(o->oy - cy));
-            if (d - (s32)o->radius > MIN(dmax, ((s32)o->lod << 8) * (o->type == OBJ_SOLID && o->lod < 128 ? SOLID_LOD : 8) / 8)) continue;
-            /* detras de la camara (con el radio de margen): ni se transforma ni entra en la lista que se ordena */
-            if (BEHIND_CULL && (MULS16((o->ox - cx) >> 3, c->m[6]) + MULS16((o->oy - cy) >> 3, c->m[7]) +
-                 MULS16((o->oz - (c->z >> 8)) >> 3, c->m[8])) >> 14 < -(((s32)o->radius >> 3) + 16)) continue;
-            items[ni].o = o;
-            items[ni].key = (o->type == OBJ_GROUND || o->type == OBJ_LINES)
-                            ? 0x40000000L + ((s32)o->radius << 8) + o->type * 0 : d;
-            if (o->type == OBJ_LINES) items[ni].key = 0x40000000L - 1 - d;
-            ni++;
-        }
+    for (i = 0; i < nt; i++) ni = gather_tile(tl[i], c, ni, cx, cy, dmax);
     /* orden descendente de clave: suelo (por tamano) y luego solidos de lejos a cerca */
     for (i = 1; i < ni; i++) {
         t = items[i]; j = i - 1;
@@ -571,7 +578,7 @@ void view_world(Surface *s, const Camera *c, World *w)
 
 /* ------------------------------------------------ avion en vista exterior */
 void view_model(Surface *s, const Camera *c, const Model *mdl,
-                s32 ax, s32 ay, s32 az, const s16 *am)
+                s32 ax, s32 ay, s32 az, const s16 *am, int gear)
 {
     s16 C[9], base16[3];
     s32 base[3], key[64];
@@ -592,7 +599,7 @@ void view_model(Surface *s, const Camera *c, const Model *mdl,
     near_z = 4;
     proj_all(vw, n, near_z, c->fx, c->fy, pxy, pfront);
     /* caras ordenadas por profundidad media (pintor), sin ocultacion */
-    f = mdl->f; nf = MIN(mdl->nf, 64);
+    f = mdl->f; nf = MIN(mdl->nf - (gear ? 0 : mdl->ngear), 64);
     for (i = 0; i < nf; i++) {
         fp[i] = f;
         key[i] = face_key(f);

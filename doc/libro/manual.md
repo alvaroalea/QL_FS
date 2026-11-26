@@ -26,6 +26,8 @@ El juego se entrega en dos imágenes con el mismo contenido: `qfs.img` (disquete
 | `iberia_scn` | Escenario Península Ibérica (450 KB). |
 | `demo_scn` | Escenario de prueba «Valle del QL» (19 KB). |
 | `planeador_acf`, `mono_acf`, `bimotor_acf`, `reactor_acf` | Los cuatro aviones. Son ficheros de texto que se pueden editar. |
+| `planeador_src`, `mono_src`, `bimotor_src`, `reactor_src` | Fondo del panel de cada avión (volcado de pantalla de 32 KB, lo genera `tools/mkpanel.c`). Si cambias un `*_acf`, regenera el `*_src` correspondiente. |
+| `partida_sav` | Partida guardada con **G** en el menú (aparece al guardar). |
 
 ## Cargarlo desde disquete
 
@@ -72,6 +74,8 @@ Cambia `flp1_` por tu unidad en las líneas 110 y 130.
 |:-------------------------|:---------------------------------------------|
 | «NO SE PUEDE ABRIR EL ESCENARIO» | Falta `iberia_scn` o `demo_scn` en la unidad indicada por `D$`. |
 | «NO SE PUEDE LEER EL AVIÓN» | Falta alguno de los ficheros `*_acf`. |
+| «FALTA EL FICHERO DEL PANEL (.SRC)» | Falta el `*_src` del avión elegido: el panel sale en negro. |
+| «NO SE PUDO GUARDAR / CARGAR LA PARTIDA» | Disco lleno o protegido contra escritura; o `partida_sav` no existe o es de otra versión. |
 | El QL se queda en blanco al ejecutar | Revisa que la línea 130 del `boot` apunte a la unidad correcta. |
 | Los colores salen distintos | Comprueba que el QL está en modo 4 (el `boot` lo hace con `MODE 4`). |
 
@@ -93,6 +97,11 @@ Al arrancar aparece el menú de salida. Todo se maneja con el teclado y se actua
 | **4** | Reactor ejecutivo bimotor. |
 | **T** / **Mayús+T** | Hora de salida: sube o baja una hora. Por defecto, las 12:00. |
 | **E** | Escenario: alterna entre «Península Ibérica» (por defecto) y «Valle del QL (demo)». |
+| **A** / **Mayús+A** | Aeropuerto de salida. |
+| **S** / **Mayús+S** | Tipo de salida: «Continuar vuelo» (solo al volver de un vuelo, y es la opción que queda elegida), en pista, en plataforma (la primera plataforma definida en el escenario; si no la tiene, junto a la pista), en vuelo (al azar, al 33 % del techo) o aterrizando. |
+| **D** / **Mayús+D** | En pista: cabecera. Aterrizando: punto de la senda de 3° hacia la pista (a 20 NM, IF a 10 NM, FAF a 5 NM y «en corta final», a 1,5 NM) y, al acabar los de una pista, la siguiente cabecera. El avión sale a velocidad de planeo, con tren y flaps arriba. |
+| **G** | Guarda el vuelo en curso en el disco (`PARTIDA_SAV`). Solo hay vuelo que guardar si se ha vuelto al menú desde uno. |
+| **L** | Carga la partida guardada y sigue volando desde ella. El fichero solo vale en la misma máquina y versión. |
 | **ENTER** | Volar. |
 | **ESC** | Salir al SuperBASIC. |
 
@@ -153,7 +162,7 @@ Al pulsar ENTER se pasa a la cabina. La pantalla se divide en la vista exterior 
 | 7 | Variómetro | Velocidad vertical en miles de pies por minuto. |
 | 8 | CDI / ILS | Desviación lateral (barra vertical) y de senda (barra verde horizontal); indica `LOC` o `OBS`, y `TO`, `FR` u `OFF`. |
 | 9 | Radios | COM1, NAV1, NAV2, ADF, DME, transpondedor y la hora. |
-| 10 | Palancas | Barras **T**: gas, **P**: paso de hélice, **M**: mezcla y **F**: flaps. |
+| 10 | Palancas | Barras **T**: gas, **P**: paso de hélice, **M**: mezcla y **F**: flaps. En los bimotores, T, P y M son dos barras finas (motor izquierdo y derecho). |
 | 11 | Motor y tren | Luces del tren, MAP, EGT, combustible (COMB), balizas (O M I) y aviso `PARADO`. |
 | 12 | Mensajes de la torre | Texto del ATIS y del control, que se desplaza. |
 | 13 | Línea de estado | Vista, avión, aeropuerto de salida, flaps y avisos. |
@@ -178,7 +187,7 @@ Las opciones del menú no se cambian en vuelo, pero sí estas:
 | Tecla | Acción |
 |:----------------|:-----------------------------------------------|
 | **TAB** | Pausa. |
-| **V** | Cambia de vista: cabina, persecución, torre, lateral. |
+| **V** | Cambia de vista: cabina, persecución, torre, lateral. En las vistas exteriores el tren de los aviones retráctiles desaparece del dibujo cuando está recogido del todo. |
 | **T** / **Mayús+T** | Hora +1 h / −1 h. |
 | **R** / **Mayús+R** | Reinicia el vuelo en la cabecera del siguiente / anterior aeropuerto. |
 | **ENTER** | Tras un choque, reinicia el vuelo. |
@@ -264,9 +273,9 @@ Un monoplano de ala alta de cuatro plazas, con motor de pistón de 160 HP, héli
 | Combustible | 200 L; consumo 38 L/h a plena potencia (≈ 5 h) |
 | Flaps | 0, 10, 20 y 30° |
 | Pérdida | 41 kt con flaps; 48 kt limpio |
-| Mejor planeo (calculado) | ≈ 70 kt, fineza ≈ 11 |
-| Carrera de despegue (medida) | ≈ 700 m |
-| Subida (medida) | ≈ 800–1000 ft/min a 80 kt |
+| Mejor planeo (calculado) | ≈ 75 kt, fineza ≈ 13 |
+| Carrera de despegue (medida) | ≈ 280 m |
+| Subida (medida) | ≈ 1100 ft/min a 77 kt |
 | Techo | 4200 m (13 800 ft) |
 
 **Cómo se comporta.** Con la hélice de paso fijo, las RPM dependen del gas y de la velocidad: en picado suben mucho, así que vigila no pasarte del trazo rojo del cuentarrevoluciones. La mezcla se maneja con **M** y **Mayús+M**; con la barra al máximo el motor trabaja rico y cómodo. Si la mezcla baja demasiado o se acaba el combustible, el motor se para.
@@ -357,8 +366,8 @@ El teclado se lee a la vez: puedes pulsar varias teclas simultáneamente (por ej
 
 | Tecla | Acción |
 |:----------------|:-------------------------------------------------------|
-| **F** | Un punto más de flaps (o abre los aerofrenos del planeador). |
-| **Mayús+F** | Un punto menos de flaps (o cierra los aerofrenos). |
+| **F** | Un punto menos de flaps, hacia 0 (o cierra los aerofrenos del planeador). |
+| **Mayús+F** | Un punto más de flaps (o abre los aerofrenos). |
 | **G** | Sube o baja el tren (solo en aviones de tren retráctil). |
 | **.** (punto) | Frenos de las ruedas, mientras se mantiene pulsada. |
 

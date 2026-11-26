@@ -96,6 +96,10 @@ int world_open(World *w, const char *fname)
         a->atis = rd16(p + 42);
         a->twr = rd16(p + 44);
         a->nrwy = p[46];
+        a->plat_dx = (s16)((s8)p[47] * 8);
+        a->plat_dy = (s16)((s8)p[118] * 8);
+        a->plat_hdg = (u16)((u16)p[119] << 8);
+        a->has_plat = (u8)(p[119] != 0);
         for (k = 0; k < 4; k++) {
             u8 *r = p + 48 + k * 16;
             a->rwy[k].hdg = rd16(r);
@@ -113,6 +117,10 @@ int world_open(World *w, const char *fname)
     }
     free(b);
     for (i = 0; i < TILE_CACHE; i++) { w->cache[i].tx = -1; w->cache[i].mem = NULL; }
+    w->slot = (s8 *)malloc((size_t)w->ntx * w->nty + 1);
+    if (!w->slot) return 0;
+    memset(w->slot, 0xFF, (size_t)w->ntx * w->nty);
+    w->gen = 1; w->hl_gen = 0; w->hl = NULL; w->nhl = w->maxhl = 0; w->hit_near = 0;
     return 1;
 }
 
@@ -124,6 +132,8 @@ void world_close(World *w)
         if (w->cache[i].obj) free(w->cache[i].obj);
     }
     for (i = 0; i < w->napt; i++) if (w->apt[i].atis_text) free(w->apt[i].atis_text);
+    free(w->hl); w->hl = NULL;
+    free(w->slot); w->slot = NULL;
     free(w->apt); free(w->nav); free(w->tdir_off); free(w->tdir_size); free(w->tdir_elev);
     if (w->fp) fclose(w->fp);
     w->fp = NULL;
@@ -150,6 +160,8 @@ static int tile_parse(Tile *t, u8 *blob, u32 size)
         o->nv = p[16]; o->nf = p[17];
         o->fbytes = rd16(p + 18);
         p += 20;
+        o->reach = ((s32)o->lod << 8) * (o->type == OBJ_SOLID && o->lod < 128 ? SOLID_LOD : 8) / 8;
+        o->reach += o->radius;
         o->v = (s16 *)p;
         if (swap)
             for (k = 0; k < o->nv * 3; k++) o->v[k] = (s16)rd16(p + k * 2);
@@ -166,6 +178,7 @@ static int tile_load(World *w, Tile *t, int tx, int ty)
     int idx = ty * w->ntx + tx;
     u32 sz = w->tdir_size[idx];
     u8 *blob;
+    if (t->tx >= 0) w->slot[t->ty * w->ntx + t->tx] = -1;
     if (t->mem) { free(t->mem); t->mem = NULL; }
     if (t->obj) { free(t->obj); t->obj = NULL; }
     t->tx = -1; t->nobj = 0;
@@ -176,6 +189,7 @@ static int tile_load(World *w, Tile *t, int tx, int ty)
     w->bytes_loaded += sz;
     if (!tile_parse(t, blob, sz)) return 0;
     t->tx = (s16)tx; t->ty = (s16)ty;
+    w->gen++;
     return 1;
 }
 
@@ -183,10 +197,8 @@ static Tile *tile_get(World *w, int tx, int ty)
 {
     int i, best = -1;
     u32 old = 0xFFFFFFFFUL;
-    for (i = 0; i < TILE_CACHE; i++) {
-        Tile *t = &w->cache[i];
-        if (t->tx == tx && t->ty == ty) { t->stamp = w->clock; return t; }
-    }
+    i = w->slot[ty * w->ntx + tx];
+    if (i >= 0) { w->cache[i].stamp = w->clock; return &w->cache[i]; }
     for (i = 0; i < TILE_CACHE; i++) {
         Tile *t = &w->cache[i];
         if (t->tx < 0) { best = i; break; }
@@ -195,6 +207,7 @@ static Tile *tile_get(World *w, int tx, int ty)
     if (best < 0) return NULL;
     if (!tile_load(w, &w->cache[best], tx, ty)) return NULL;
     w->cache[best].stamp = w->clock;
+    w->slot[ty * w->ntx + tx] = (s8)best;
     return &w->cache[best];
 }
 
@@ -226,7 +239,7 @@ s16 world_ground(World *w, s32 x, s32 y)
     int tx = (int)((x - w->org_x) >> w->tile_log2);
     int ty = (int)((y - w->org_y) >> w->tile_log2);
     if (tx < 0 || ty < 0 || tx >= w->ntx || ty >= w->nty) return w->elev;
-    return w->tdir_elev[ty * w->ntx + tx];
+    return w->tdir_elev[MULS16(ty, w->ntx) + tx];
 }
 
 const Airport *world_nearest_airport(World *w, s32 x, s32 y, s32 *dist)
@@ -261,37 +274,60 @@ static int inside_face(const Obj *o, s32 px, s32 py)
     return c;
 }
 
-int world_hit(World *w, s32 x, s32 y, s32 z)
+/* lista compacta de objetos de colision de la cache (se rehace solo cuando cambian las teselas) */
+static void hit_list(World *w)
 {
-    int i, k;
-    s32 dx, dy, top;
+    int i, k, n = 0;
     for (i = 0; i < TILE_CACHE; i++) {
         Tile *t = &w->cache[i];
         if (t->tx < 0) continue;
-        for (k = 0; k < t->nobj; k++) {
-            Obj *o = &t->obj[k];
-            if (!(o->flags & (OF_HIT | OF_WATER))) continue;
-            dx = x - o->ox; dy = y - o->oy;
-            if (ABS(dx) > o->radius || ABS(dy) > o->radius) continue;
-            if (o->flags & OF_WATER) {
-                if (z <= o->oz + 1 && inside_face(o, dx, dy)) return 3;
-                continue;
-            }
-            /* cilindro: 70% del radio, altura del vertice mas alto */
-            if (MULS16(dx >> 2, dx >> 2) + MULS16(dy >> 2, dy >> 2) >
-                MULS16(o->radius >> 2, o->radius >> 2) / 2) continue;
-            {
-                int j; s16 mz = 0;
-                for (j = 0; j < o->nv; j++) if (o->v[j * 3 + 2] > mz) mz = o->v[j * 3 + 2];
-                top = o->oz + (((s32)mz << o->vshift) >> 3);
-            }
-            if (o->flags & OF_MOUNTAIN) {
-                /* cono: la altura baja con la distancia al centro */
-                s32 r = isqrt32((u32)(dx * dx + dy * dy));
-                top = o->oz + (top - o->oz) * (o->radius - r) / (o->radius + 1);
-                if (z < top) return 2;
-            } else if (z < top) return 1;
-        }
+        for (k = 0; k < t->nobj; k++) if (t->obj[k].flags & (OF_HIT | OF_WATER)) n++;
     }
-    return 0;
+    if (n > w->maxhl) {
+        free(w->hl);
+        w->hl = (Obj **)malloc(sizeof(Obj *) * (n + 16));
+        w->maxhl = w->hl ? n + 16 : 0;
+    }
+    w->nhl = 0;
+    if (!w->hl) return;
+    for (i = 0; i < TILE_CACHE; i++) {
+        Tile *t = &w->cache[i];
+        if (t->tx < 0) continue;
+        for (k = 0; k < t->nobj; k++) if (t->obj[k].flags & (OF_HIT | OF_WATER)) w->hl[w->nhl++] = &t->obj[k];
+    }
+}
+
+int world_hit(World *w, s32 x, s32 y, s32 z)
+{
+    int i, res = 0;
+    s32 dx, dy, top, near = 0x7FFFFFFFL, dd;
+    Obj **pp;
+    if (w->hl_gen != w->gen || !w->hl) { hit_list(w); w->hl_gen = w->gen; }
+    for (pp = w->hl, i = w->nhl; i > 0; i--, pp++) {
+        Obj *o = *pp;
+        dx = x - o->ox; dy = y - o->oy;
+        dd = MAX(ABS(dx), ABS(dy)) - (s32)o->radius;
+        if (dd > 0) { if (dd < near) near = dd; continue; }
+        near = 0;
+        if (o->flags & OF_WATER) {
+            if (z <= o->oz + 1 && inside_face(o, dx, dy)) { res = 3; break; }
+            continue;
+        }
+        /* cilindro: 70% del radio, altura del vertice mas alto */
+        if (MULS16(dx >> 2, dx >> 2) + MULS16(dy >> 2, dy >> 2) >
+            MULS16(o->radius >> 2, o->radius >> 2) / 2) continue;
+        {
+            int j; s16 mz = 0;
+            for (j = 0; j < o->nv; j++) if (o->v[j * 3 + 2] > mz) mz = o->v[j * 3 + 2];
+            top = o->oz + (((s32)mz << o->vshift) >> 3);
+        }
+        if (o->flags & OF_MOUNTAIN) {
+            /* cono: la altura baja con la distancia al centro */
+            s32 r = isqrt32((u32)(dx * dx + dy * dy));
+            top = o->oz + (top - o->oz) * (o->radius - r) / (o->radius + 1);
+            if (z < top) { res = 2; break; }
+        } else if (z < top) { res = 1; break; }
+    }
+    w->hit_near = near;
+    return res;
 }

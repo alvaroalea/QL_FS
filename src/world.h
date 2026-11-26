@@ -24,6 +24,10 @@
 #define OF_MOUNTAIN 0x10
 #define OF_SORT     0x20   /* ordenar caras por profundidad (manzanas, montanas) */
 
+#ifndef SOLID_LOD
+#define SOLID_LOD 5        /* alcance de dibujo de los solidos pequenos (edificios, lod < 128) en octavos de su lod: 5/8; 8 = sin recorte */
+#endif
+
 /* atributo de cara: bits 0-3 relleno, 4-5 color de contorno, 6 contorno, 7 sin relleno */
 #define FA_FILL(a)   ((a) & 15)
 #define FA_LCOL(a)   (((a) >> 4) & 3)
@@ -39,6 +43,7 @@ typedef struct {
     u16 fbytes;
     s16 *v;                         /* nv*3, unidades (1/8 m) << vshift */
     u8  *f;                         /* caras: n, atributo, indices... */
+    s32 reach;                      /* radio + alcance de dibujo (m, <<8 ya aplicado): d > reach = no se ve (calculado al cargar) */
 } Obj;
 
 typedef struct {
@@ -83,6 +88,9 @@ typedef struct {
     u16 atis, twr;       /* frecuencias */
     u8  nrwy;
     Runway rwy[4];
+    u8  has_plat;        /* el escenario define una plataforma de estacionamiento */
+    s16 plat_dx, plat_dy;/* posicion de la plataforma respecto a (x, y) en m */
+    u16 plat_hdg;        /* rumbo del eje de la plataforma, BAM16 */
     char *atis_text;
 } Airport;
 
@@ -104,6 +112,10 @@ typedef struct {
     Airport *apt;
     Tile  cache[TILE_CACHE];
     u32   clock;
+    s8   *slot;            /* tesela (ty*ntx+tx) -> indice en cache, -1 = no esta */
+    u32   gen, hl_gen;             /* sube cada vez que se carga una tesela (invalida la lista de colisiones) */
+    Obj **hl; int nhl, maxhl;   /* objetos con OF_HIT/OF_WATER de las teselas en cache */
+    s32   hit_near;        /* distancia horizontal minima (m) a un objeto de colision en la ultima comprobacion */
     u32   bytes_loaded;
 } World;
 

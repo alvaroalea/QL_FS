@@ -4,6 +4,7 @@
 #include "sound.h"
 #include "util.h"
 #include <string.h>
+#include <stdio.h>
 
 Sim sim;
 static u8 *backbuf;                      /* vista 3D: se dibuja aqui (RAM alta, sin contencion) y se vuelca de golpe a la pantalla */
@@ -48,15 +49,101 @@ static void read_keys(int full)
     for (r = 0; r < 8; r++) scan_row(r);
 }
 
+int sim_start_apt, sim_start_mode, sim_start_rwy, sim_start_pt;   /* los fija sim_menu: aeropuerto, tipo de salida (START_*), pista/cabecera y punto de la senda */
+int sim_restore;                         /* 1: sim_init restaura el vuelo guardado (snap) tras colocar el avion */
+
+static u32 air_rnd(void)                 /* 16 bits pseudoaleatorios; semilla: reloj de 50 Hz */
+{
+    static u32 st;
+    if (!st) st = plat_ticks() * 2654435761UL + 1;
+    st = st * 1103515245UL + 12345UL;
+    return (st >> 16) & 0xFFFFUL;
+}
+
+static s32 air_pos(s32 org, s32 span)    /* posicion al azar en el mapa, dejando un 10% de margen en cada borde */
+{
+    s32 m = span / 10;
+    return org + m + (((span - 2 * m) >> 8) * (s32)air_rnd() >> 8);
+}
+
+/* Avion en vuelo a velocidad de mejor planeo (CL = raiz(CD0/k): minimo cociente CD/CL), tren y flaps arriba. La incidencia y el
+ * compensador se ponen para que el vuelo empiece equilibrado a esa velocidad. */
+static void place_glide(s32 x, s32 y, s32 z, u16 hdg)
+{
+    const AircraftDef *a = &sim.ac;
+    Flight *f = &sim.f;
+    s32 sg, cl, v2, alf;
+    sg = fxlerp_tab(atm_sigma, 17, (z << 16) / 1000);
+    cl = a->k_ind > 0 ? isqrt32((u32)fxdiv(a->cd0, a->k_ind)) << 8 : FXF(7, 10);
+    if (cl < FXF(2, 10)) cl = FXF(2, 10);
+    v2 = fxdiv(642908L, fxmul(fxmul(f->KL, sg), cl));            /* g / (KL sigma CL) */
+    alf = fxdiv(cl - a->cl0, a->cla);
+    alf = CLAMP(alf, -3 * FX_DEG, fxmul(a->alpha_stall, FXF(8, 10)));
+    flight_place(f, x, y, z, hdg, 0, 0);
+    f->v = isqrt32((u32)v2) << 8;
+    f->alf = f->the = alf;
+    f->trim = CLAMP(fxdiv(alf - 2 * FX_DEG, a->pitch_auth), -FX_ONE, FX_ONE);
+    if (a->retract) { f->gear_down = 0; f->gear_pos = 0; }
+    if (a->eng_type != ENG_NONE) f->thr[0] = f->thr[1] = FXF(6, 10);
+}
+
+/* Salida en vuelo (tecla S del menu): 33% del techo (o 300 m sobre el terreno si es mas alto), rumbo y posicion al azar. */
+static void place_air(void)
+{
+    const AircraftDef *a = &sim.ac;
+    World *w = &sim.w;
+    s32 x = air_pos(w->org_x, (s32)w->ntx << w->tile_log2);
+    s32 y = air_pos(w->org_y, (s32)w->nty << w->tile_log2);
+    s32 z = a->max_alt / 3, gnd = world_ground(w, x, y);
+    u16 hdg = (u16)air_rnd();
+    if (z < gnd + 300) z = gnd + 300;
+    place_glide(x, y, z, hdg);
+}
+
+/* Puntos de la senda de descenso (distancia al umbral en m, sobre la prolongacion del eje): 20 NM, IF (10 NM), FAF (5 NM) y
+ * corta final (1,5 NM). Los de las cartas de aproximacion (tools/procdesign.py) son el IF y el FAF. */
+const s32 land_dist[LAND_PTS] = { 37040L, 18520L, 9260L, 2778L };
+
+/* Aterrizando: sobre la prolongacion del eje de la pista, en la senda de 3 grados (tan 3 = 0,0524: 1 m por cada 19 m) hacia un
+ * punto a 300 m del umbral, con 60 m de margen sobre el terreno. */
+static void place_land(const Airport *ap, const Runway *rw, s32 sx, s32 cx)
+{
+    s32 d = land_dist[CLAMP(sim.start_pt, 0, LAND_PTS - 1)];
+    s32 x = rw->tx - ((sx * d) >> 14), y = rw->ty - ((cx * d) >> 14);
+    s32 z = ap->elev + ((d + 300) * 54 >> 10), gnd = world_ground(&sim.w, x, y);
+    if (z < gnd + 60) z = gnd + 60;
+    place_glide(x, y, z, rw->hdg);
+    if (sim.ac.eng_type != ENG_NONE) sim.f.thr[0] = sim.f.thr[1] = FXF(sim.ac.eng_type == ENG_JET ? LAND_THR_JET : LAND_THR, 100);   /* potencia de descenso */
+}
+
 void sim_reset(void)
 {
     const Airport *ap = &sim.w.apt[sim.start_apt];
-    const Runway *rw = &ap->rwy[0];
-    s32 sx = isin(rw->hdg), cx = icos(rw->hdg);
+    const Runway *rw;
+    s32 sx, cx;
+    s32 px, py;
+    u16 ph;
+    if (sim.start_rwy >= ap->nrwy) sim.start_rwy = 0;
+    rw = &ap->rwy[sim.start_rwy];               /* pista y sentido elegidos (cada cabecera es una entrada) */
+    sx = isin(rw->hdg); cx = icos(rw->hdg);
     sim.vpart = 0;                              /* la vista que estuviera a medias se abandona */
     flight_init(&sim.f, &sim.ac);
+    if (sim.start_mode == START_AIR) place_air();
+    else if (sim.start_mode == START_LAND) place_land(ap, rw, sx, cx);
+    else if (sim.start_mode == START_RAMP) {    /* plataforma del aeropuerto (o, si no la tiene, junto a la pista) */
+        if (ap->has_plat) {
+            px = ap->x + ap->plat_dx; py = ap->y + ap->plat_dy;
+            ph = ap->plat_hdg;
+            if ((u16)(ph - rw->hdg) > 16384U && (u16)(ph - rw->hdg) < 49152U) ph += 32768U;   /* el sentido mas parecido al de la pista */
+        } else {
+            px = rw->tx + ((sx * (s32)rw->len) >> 15) + ((cx * ((s32)rw->wid / 2 + 40)) >> 14);
+            py = rw->ty + ((cx * (s32)rw->len) >> 15) - ((sx * ((s32)rw->wid / 2 + 40)) >> 14);
+            ph = rw->hdg;
+        }
+        flight_place(&sim.f, px, py, ap->elev + (sim.ac.gear_h >> 16), ph, 0, 1);
+    }
     /* 60 m despues del umbral, en el eje */
-    if (sim.ac.eng_type == ENG_NONE)   /* planeador: empieza en el aire, 4 km antes del umbral */
+    else if (sim.ac.eng_type == ENG_NONE)   /* planeador: empieza en el aire, 4 km antes del umbral */
         flight_place(&sim.f, rw->tx - (sx * 4000 >> 14), rw->ty - (cx * 4000 >> 14),
                      ap->elev + 600, rw->hdg, 30, 0);
     else
@@ -66,9 +153,90 @@ void sim_reset(void)
     nav_init(&sim.r);
     sim.r.com = ap->twr;
     sim.r.obs1 = rw->hdg;
+    if (sim.start_mode == START_AIR || sim.start_mode == START_LAND) {
+        s32 d;
+        const Airport *na = world_nearest_airport(&sim.w, sim.f.x >> 8, sim.f.y >> 8, &d);
+        if (na) sim.r.com = na->twr;
+        if (sim.start_mode == START_LAND) sim.r.com = ap->twr;
+        sim.r.obs1 = (u16)fxmul(sim.f.psi, RAD2BAM);
+    }
     atc_init(&sim.atc);
     sim.crash_shown = 0;
     sim.nsteps = 0;
+}
+
+/* --------------------------------------------------------------- partida
+ * Una partida es una foto del vuelo: avion, radios, hora, vista y escenario. Se toma al volver al menu (para CONTINUAR VUELO) y
+ * se puede guardar en disco (PARTIDA.SAV) o cargar de el. El fichero es el volcado crudo de la estructura: solo vale en la
+ * maquina (y version) que lo escribio, y se descarta si cambia su tamano. */
+#define SNAP_MAGIC 0x51465331UL            /* "QFS1" */
+
+typedef struct {
+    u32 magic, size;
+    int sel, esc;                          /* avion y escenario (indices del menu) */
+    Flight f;
+    Radios r;
+    u32 clock;
+    int clock_sub, view_mode, look, zoom;
+    int start_apt, start_mode, start_rwy, start_pt;
+} Snap;
+
+static Snap sim_snap;                             /* ultima foto */
+static int sim_snap_ok;                           /* sim_snap contiene un vuelo */
+
+static void snap_take(int sel, int esc)
+{
+    Snap *p = &sim_snap;
+    p->magic = SNAP_MAGIC; p->size = sizeof(Snap);
+    p->sel = sel; p->esc = esc;
+    p->f = sim.f; p->r = sim.r;
+    p->clock = sim.clock; p->clock_sub = sim.clock_sub;
+    p->view_mode = sim.view_mode; p->look = sim.look; p->zoom = sim.zoom;
+    p->start_apt = sim.start_apt; p->start_mode = sim.start_mode; p->start_rwy = sim.start_rwy; p->start_pt = sim.start_pt;
+    sim_snap_ok = 1;
+}
+
+static void snap_restore(void)
+{
+    Snap *p = &sim_snap;
+    sim.f = p->f;
+    sim.f.ac = &sim.ac;                    /* punteros que no valen de una ejecucion a otra */
+    sim.f.hit_wait = 0; sim.f.hit_gen = 0;
+    sim.r = p->r;
+    sim.r.n1 = sim.r.n2 = NULL;
+    sim.clock = p->clock; sim.clock_sub = p->clock_sub;
+    sim.view_mode = p->view_mode; sim.look = p->look; sim.zoom = p->zoom;
+    sim.nsteps = 25 * 6;                   /* sin el rotulo del aeropuerto en la linea de estado */
+}
+
+static int snap_save(void)
+{
+    char path[48];
+    FILE *fp;
+    int ok;
+    if (!sim_snap_ok) return 0;
+    plat_path(path, "partida.sav");
+    fp = fopen(path, "wb");
+    if (!fp) return 0;
+    ok = fwrite(&sim_snap, sizeof(Snap), 1, fp) == 1;
+    fclose(fp);
+    return ok;
+}
+
+static int snap_load(void)                        /* 1 = hay partida valida y queda en sim_snap */
+{
+    static Snap t;
+    char path[48];
+    FILE *fp;
+    int ok;
+    plat_path(path, "partida.sav");
+    fp = fopen(path, "rb");
+    if (!fp) return 0;
+    ok = fread(&t, sizeof(Snap), 1, fp) == 1 && t.magic == SNAP_MAGIC && t.size == sizeof(Snap) &&
+         t.sel >= 0 && t.sel < 4 && t.esc >= 0 && t.esc < 2;
+    fclose(fp);
+    if (ok) { sim_snap = t; sim_snap_ok = 1; }
+    return ok;
 }
 
 int sim_init(const char *scn, const char *acf, int hour)
@@ -87,9 +255,13 @@ int sim_init(const char *scn, const char *acf, int hour)
     sim.zoom = 256;
     sim.cam.vis = sim.w.vis_km ? (s32)sim.w.vis_km * 1000L : 24000L;
     sim.clock = (u32)hour * 3600UL;
-    sim.start_apt = 0;
+    sim.start_apt = (sim_start_apt >= 0 && sim_start_apt < sim.w.napt) ? sim_start_apt : 0;
+    sim.start_mode = sim_start_mode;
+    sim.start_rwy = sim_start_rwy;
+    sim.start_pt = sim_start_pt;
     sim_reset();
-    panel_init(sim.scr, &sim.ac);
+    if (sim_restore) { sim_restore = 0; snap_restore(); }
+    panel_init(sim.scr, &sim.ac, acf);
     snd_init();
     sim.tick_phys = plat_ticks();
     return 0;
@@ -136,8 +308,8 @@ static void controls_frame(void)
     Radios *rd = &sim.r;
     int sh = down(KEY_SHIFT);
     if (hit(KEY_F)) {
-        if (sh) { if (f->flaps > 0) f->flaps--; }
-        else if (f->flaps < sim.ac.n_flaps - 1) f->flaps++;
+        if (sh) { if (f->flaps < sim.ac.n_flaps - 1) f->flaps++; }      /* F: hacia 0 (recoge); Mayus+F: mas flaps */
+        else if (f->flaps > 0) f->flaps--;
     }
     if (hit(KEY_G) && sim.ac.retract) f->gear_down = !f->gear_down;
     if (hit(KEY_V)) sim.view_mode = (sim.view_mode + 1) & 3;
@@ -160,6 +332,8 @@ static void controls_frame(void)
     if (f->crash && hit(KEY_ENTER)) sim_reset();
     if (hit(KEY_R)) {                       /* siguiente aeropuerto de salida */
         sim.start_apt = (sim.start_apt + (sh ? sim.w.napt - 1 : 1)) % sim.w.napt;
+        sim.start_mode = START_RWY;         /* R: salida desde pista */
+        sim.start_rwy = 0;
         sim_reset();
     }
 }
@@ -288,7 +462,8 @@ static void view_part_b(void)
 {
     view_world_step(&sim.view, &sim.cam, 0x7FFFFFFFL);
     if (view_mode_a != VIEW_COCKPIT)
-        view_model(&sim.view, &sim.cam, &sim.ac.model, view_ax, view_ay, view_az, view_am);
+        view_model(&sim.view, &sim.cam, &sim.ac.model, view_ax, view_ay, view_az, view_am,
+                   !(sim.ac.retract && sim.f.gear_pos <= 0));      /* tren recogido del todo: no se ve */
     if (sim.f.crash) {
         const char *m = crash_msg(sim.f.crash);
         gfx_rect(&sim.view, VIEW_CX - gfx_textw(m) / 2 - 4, 40, VIEW_CX + gfx_textw(m) / 2 + 4, 52, fill_tab[F_BLACK]);
@@ -316,6 +491,8 @@ void sim_render(void)                            /* vista entera y panel (lo usa
     render_panel();
 }
 
+static int nav_sub;                              /* pasos de fisica desde la ultima actualizacion de navegacion y ATC */
+
 void sim_frame(void)
 {
     u32 now;
@@ -331,7 +508,8 @@ void sim_frame(void)
         flight_step(&sim.f, &sim.w);
         sim.nsteps++;
         if (++sim.clock_sub >= PHYS_HZ) { sim.clock_sub = 0; sim.clock = (sim.clock + 1) % 86400UL; }
-        if ((sim.nsteps % 12) == 0) {
+        if (++nav_sub >= 12) {                   /* (sin % : en el 68000 es una llamada a la biblioteca) */
+            nav_sub = 0;
             nav_update(&sim.r, &sim.w, &sim.f);
             atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 0);
         }
@@ -365,6 +543,16 @@ void sim_frame(void)
 }
 
 /* --------------------------------------------------------------- menu */
+static World mw;                                 /* escenario del menu, abierto solo para leer la lista de aeropuertos */
+
+static void menu_open(const char *name)
+{
+    char path[48];
+    if (mw.fp) world_close(&mw);
+    plat_path(path, name);
+    if (!world_open(&mw, path)) { mw.napt = 0; world_close(&mw); }
+}
+
 int sim_menu(char *acf, char *scn, int *hour)
 {
     static const char *names[4] = { "planeador.acf", "mono.acf", "bimotor.acf", "reactor.acf" };
@@ -372,25 +560,57 @@ int sim_menu(char *acf, char *scn, int *hour)
                                    "3  BIMOTOR 2x300 HP, PASO VARIABLE", "4  REACTOR BIMOTOR" };
     static const char *scns[2] = { "demo.scn", "iberia.scn" };
     static const char *scnd[2] = { "E  ESCENARIO: VALLE DEL QL (DEMO)", "E  ESCENARIO: PENINSULA IBERICA" };
-    static int esc = 1;
+    static const char *ptd[LAND_PTS] = { "A 20 NM", "IF 10 NM", "FAF 5 NM", "EN CORTA FINAL" };
+    static const int ord[5] = { START_CONT, START_RWY, START_RAMP, START_AIR, START_LAND };   /* orden de la tecla S */
+    static int esc = 1, apt = 0, mode = START_RWY, rwy = 0, pt = 0, sel = 1;   /* se recuerdan al volver al menu */
+    const char *msg = "";
     Surface s;
-    int sel = 1, i, done = 0, dirty = 1, o_sel, o_hour, o_esc;
-    char b[40];
+    int i, k, done = 0, dirty = 1, o_sel, o_hour, o_esc, o_apt, o_mode, o_rwy, o_pt, n;
+    char b[64];
     u8 *scr = plat_screen();
     gfx_init_surface(&s, scr, SCR_H);
-    *hour = 12;
+    if (sim.frames) {                                               /* se vuelve de un vuelo: se guarda y se ofrece continuarlo */
+        snap_take(sel, esc);
+        mode = START_CONT;
+    }
+    if (mode == START_CONT && !sim_snap_ok) mode = START_RWY;
+    *hour = sim.frames ? (int)((sim.clock / 3600UL) % 24) : 12;     /* tras un vuelo: la hora actual del simulador */
+    menu_open(scns[esc]);
+    if (apt >= mw.napt) apt = 0;
     while (!done) {
         read_keys(1);
-        o_sel = sel; o_hour = *hour; o_esc = esc;
+        o_sel = sel; o_hour = *hour; o_esc = esc; o_apt = apt; o_mode = mode; o_rwy = rwy; o_pt = pt;
         if (hit(KEY_1)) sel = 0;
         if (hit(KEY_2)) sel = 1;
         if (hit(KEY_3)) sel = 2;
         if (hit(KEY_4)) sel = 3;
         if (hit(KEY_T)) *hour = (*hour + (down(KEY_SHIFT) ? 23 : 1)) % 24;
-        if (hit(KEY_E)) esc ^= 1;
+        if (hit(KEY_E)) { esc ^= 1; apt = rwy = pt = 0; menu_open(scns[esc]); }
+        if (hit(KEY_A) && mode != START_AIR && mode != START_CONT && mw.napt > 0) {
+            apt = (apt + (down(KEY_SHIFT) ? mw.napt - 1 : 1)) % mw.napt; rwy = pt = 0;
+        }
+        if (hit(KEY_S)) {
+            for (k = 0; ord[k] != mode; k++) ;
+            do k = (k + (down(KEY_SHIFT) ? 4 : 1)) % 5; while (ord[k] == START_CONT && !sim_snap_ok);
+            mode = ord[k];
+        }
+        n = mw.napt > 0 ? mw.apt[apt].nrwy : 0;
+        if (hit(KEY_D) && mode == START_RWY && n > 0) rwy = (rwy + (down(KEY_SHIFT) ? n - 1 : 1)) % n;
+        if (hit(KEY_D) && mode == START_LAND && n > 0) {            /* punto de la senda; al acabar los de una pista, la siguiente */
+            if (down(KEY_SHIFT)) { if (--pt < 0) { pt = LAND_PTS - 1; rwy = (rwy + n - 1) % n; } }
+            else if (++pt >= LAND_PTS) { pt = 0; rwy = (rwy + 1) % n; }
+        }
+        if (hit(KEY_G)) {
+            msg = !sim_snap_ok ? "NO HAY VUELO QUE GUARDAR" : (snap_save() ? "PARTIDA GUARDADA" : "NO SE PUDO GUARDAR LA PARTIDA");
+            dirty = 1;
+        }
+        if (hit(KEY_L)) {
+            if (snap_load()) { sel = sim_snap.sel; esc = sim_snap.esc; mode = START_CONT; done = 1; menu_open(scns[esc]); }
+            else { msg = "NO SE PUDO CARGAR LA PARTIDA"; dirty = 1; }
+        }
         if (hit(KEY_ENTER)) done = 1;
-        if (hit(KEY_ESC)) return 0;
-        if (sel != o_sel || *hour != o_hour || esc != o_esc) dirty = 1;
+        if (hit(KEY_ESC)) { world_close(&mw); return 0; }
+        if (sel != o_sel || *hour != o_hour || esc != o_esc || apt != o_apt || mode != o_mode || rwy != o_rwy || pt != o_pt) dirty = 1;
         if (!dirty) { plat_frame(); continue; }     /* solo se redibuja al cambiar algo (sin parpadeo en el QL) */
         dirty = 0;
         gfx_clear(&s, fill_tab[F_BLACK]);
@@ -400,9 +620,46 @@ int sim_menu(char *acf, char *scn, int *hour)
         u_cpy(b, "T  HORA DE SALIDA: ", 40); u_catn(b, *hour, 2, '0', 40); u_cat(b, ":00", 40);
         gfx_text(&s, 150, 120, b, C_WHITE);
         gfx_text(&s, 150, 132, scnd[esc], C_WHITE);
-        gfx_text(&s, 150, 175, "EN VUELO: R = SIGUIENTE AEROPUERTO", C_GREEN);
-        gfx_text(&s, 150, 150, "ENTER = VOLAR     ESC = SALIR", C_GREEN);
+        if (mode != START_AIR && mode != START_CONT) {
+            u_cpy(b, "A  AEROPUERTO: ", 64);
+            if (mw.napt > 0) { u_cat(b, mw.apt[apt].ident, 64); u_cat(b, " ", 64); u_cat(b, mw.apt[apt].name, 64); }
+            else u_cat(b, "---", 64);
+            gfx_text(&s, 150, 144, b, C_WHITE);
+        }
+        gfx_text(&s, 150, 156, mode == START_CONT ? "S  SALIDA: CONTINUAR VUELO" :
+                               mode == START_AIR ? "S  SALIDA: EN VUELO (33% DEL TECHO)" :
+                               mode == START_LAND ? "S  SALIDA: ATERRIZANDO" :
+                               (mode == START_RAMP ? "S  SALIDA: EN PLATAFORMA" : "S  SALIDA: EN PISTA"), C_WHITE);
+        if ((mode == START_RWY || mode == START_LAND) && n > 0) {
+            const Runway *r = &mw.apt[apt].rwy[rwy];
+            int deg = (int)((((s32)r->hdg * 360L + 32768L) >> 16) % 360), num = (deg + 5) / 10 % 36;
+            u_cpy(b, mode == START_LAND ? "D  FINAL: " : "D  PISTA: ", 64);
+            if (mode == START_LAND) { u_cat(b, ptd[pt], 64); u_cat(b, " PISTA ", 64); }
+            u_catn(b, num ? num : 36, 2, '0', 64);
+            u_cat(b, " RUMBO ", 64); u_catn(b, deg, 3, '0', 64);
+            if (mode == START_RWY) { u_cat(b, "  ", 64); u_catn(b, r->len, 4, ' ', 64); u_cat(b, " M", 64); }
+            gfx_text(&s, 150, 168, b, C_WHITE);
+        }
+        gfx_text(&s, 150, 186, "G  GUARDAR PARTIDA", sim_snap_ok ? C_WHITE : C_RED);
+        gfx_text(&s, 150, 198, "L  CARGAR PARTIDA", C_WHITE);
+        gfx_text(&s, 150, 216, "ENTER = VOLAR     ESC = SALIR", C_GREEN);
+        gfx_text(&s, 150, 228, "EN VUELO: R = SIGUIENTE AEROPUERTO", C_RED);
+        if (msg[0]) gfx_text(&s, 150, 242, msg, C_GREEN);
         plat_frame();
+    }
+    world_close(&mw);
+    if (mode == START_CONT) {                       /* el vuelo guardado manda: avion, escenario y salida de origen */
+        sel = sim_snap.sel; esc = sim_snap.esc;
+        sim_start_apt = sim_snap.start_apt; sim_start_mode = sim_snap.start_mode;
+        sim_start_rwy = sim_snap.start_rwy; sim_start_pt = sim_snap.start_pt;
+        sim_restore = 1;
+        *hour = (int)((sim_snap.clock / 3600UL) % 24);
+    } else {
+        sim_start_apt = apt;
+        sim_start_mode = mode;
+        sim_start_rwy = rwy;
+        sim_start_pt = pt;
+        sim_restore = 0;
     }
     plat_path(acf, names[sel]);
     plat_path(scn, scns[esc]);

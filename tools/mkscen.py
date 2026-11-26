@@ -254,6 +254,8 @@ class Scen:
                 x, y, L, D, r = f(0), f(1), f(2), f(3), math.radians(f(4))
                 dx, dy = math.sin(r), math.cos(r)
                 px, py = dy, -dx
+                if s.apt_order and "plat" not in s.apts[s.apt_order[-1]]:     # la primera plataforma de cada aeropuerto: salida "en plataforma"
+                    s.apts[s.apt_order[-1]]["plat"] = (x, y, f(4))
                 o = Obj(OBJ_GROUND, x, y, s.elev, 0, lod=20)
                 o.face(attr(FILLS["GRISOSC"]), [o.vert(x + sx * dx * L / 2 + sy * px * D / 2, y + sx * dy * L / 2 + sy * py * D / 2)
                                                  for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
@@ -349,9 +351,17 @@ class Scen:
                 rw += struct.pack(">HHHhii", int(round(h * 65536 / 360)) & 0xFFFF, int(ln), int(wd), 0, int(x), int(y))
             rw = rw.ljust(64, b"\0")
             t = a["text"].upper().encode()
-            aptb += struct.pack(">4s28siihHHBB", k.encode()[:4].ljust(4), a["name"].upper().encode()[:28].ljust(28),
-                                int(a["x"]), int(a["y"]), a["elev"], a["atis"], a["twr"], min(4, len(a["rwy"])), 0)
-            aptb += rw + struct.pack(">IHH", off_txt + len(texts), len(t), 0)
+            # plataforma: desplazamiento respecto al aeropuerto en unidades de 8 m (signed byte, byte 47 = este, byte 118 = norte)
+            # y rumbo en 1/256 de vuelta (byte 119, nunca 0); todo a 0 = el aeropuerto no tiene plataforma
+            px8 = py8 = ph8 = 0
+            if "plat" in a:
+                px, py, ph = a["plat"]
+                px8 = max(-127, min(127, int(round((px - a["x"]) / 8.0))))
+                py8 = max(-127, min(127, int(round((py - a["y"]) / 8.0))))
+                ph8 = max(1, int(round(ph * 256 / 360)) & 0xFF)
+            aptb += struct.pack(">4s28siihHHBb", k.encode()[:4].ljust(4), a["name"].upper().encode()[:28].ljust(28),
+                                int(a["x"]), int(a["y"]), a["elev"], a["atis"], a["twr"], min(4, len(a["rwy"])), px8)
+            aptb += rw + struct.pack(">IHbB", off_txt + len(texts), len(t), py8, ph8)
             texts += t
         blobs = b""
         off_blob = off_txt + len(texts)

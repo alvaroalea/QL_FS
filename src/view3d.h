@@ -21,7 +21,8 @@ typedef struct {
 } Camera;
 
 typedef struct {
-    int nv, nf;
+    int nv, nf;              /* nf incluye las ngear ultimas, que son el tren (segmentos) */
+    int ngear;
     s16 *v;                  /* 1/8 m, ejes del avion: x dcha, y arriba, z adelante */
     u8  *f;
     int fbytes;
@@ -41,9 +42,9 @@ void view_world(Surface *s, const Camera *c, World *w);
 /* la misma vista partida: begin reune y ordena (devuelve el coste total), step dibuja objetos hasta gastar el presupuesto */
 s32  view_world_begin(const Camera *c, World *w);
 int  view_world_step(Surface *s, const Camera *c, s32 budget);   /* 1 si no quedan objetos */
-/* avion exterior: posicion Q8, matriz de actitud (filas derecha/arriba/adelante) */
+/* avion exterior: posicion Q8, matriz de actitud (filas derecha/arriba/adelante); gear = 0 oculta el tren */
 void view_model(Surface *s, const Camera *c, const Model *mdl,
-                s32 ax, s32 ay, s32 az, const s16 *am);
+                s32 ax, s32 ay, s32 az, const s16 *am, int gear);
 
 /* nucleo: 3x3 Q14 sobre n vertices s16 -> s32 (C o ensamblador) */
 void xform3(const s16 *m, const s16 *in, s32 *out, int n);

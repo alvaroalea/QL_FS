@@ -28,8 +28,8 @@ const Nav *nav_find(World *w, u16 freq, int ndb, s32 x, s32 y)
     int i;
     const Nav *best = NULL;
     s32 bd = 0x7FFFFFFFL, d;
-    for (i = 0; i < w->nnav; i++) {
-        const Nav *n = &w->nav[i];
+    const Nav *n = w->nav;                       /* (puntero que avanza: n[i] con struct grande es un producto de 32 bits en el 68000) */
+    for (i = w->nnav; i > 0; i--, n++) {
         if (n->freq != freq) continue;
         if (ndb != (n->type == NAV_NDB)) continue;
         if (n->type >= NAV_OM) continue;
@@ -103,10 +103,12 @@ void nav_update(Radios *r, World *w, const Flight *f)
     }
     /* balizas: cono vertical de unos 300 m + 1/4 de la altura */
     r->marker = 0;
-    for (i = 0; i < w->nnav; i++) {
-        const Nav *n = &w->nav[i];
-        if (n->type < NAV_OM || n->type > NAV_IM) continue;
-        d = dist_m(n->x - x, n->y - y);
-        if (d < 300 + (z - n->z) / 4) { r->marker = n->type; break; }
+    {
+        const Nav *n = w->nav;
+        for (i = w->nnav; i > 0; i--, n++) {
+            if (n->type < NAV_OM || n->type > NAV_IM) continue;
+            d = dist_m(n->x - x, n->y - y);
+            if (d < 300 + (z - n->z) / 4) { r->marker = n->type; break; }
+        }
     }
 }

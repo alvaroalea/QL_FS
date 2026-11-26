@@ -10,7 +10,7 @@
 all: img win
 
 CC      = qcc
-ASMDEFS = -DUSE_ASM_FXMUL -DUSE_ASM_GFX -DUSE_ASM_XFORM -DUSE_ASM_MDQ -DUSE_ASM_3D -DUSE_ASM_POLY -DUSE_ASM_XOBJ
+ASMDEFS = -DUSE_ASM_FXMUL -DUSE_ASM_FXDIV -DUSE_ASM_GFX -DUSE_ASM_XFORM -DUSE_ASM_MDQ -DUSE_ASM_3D -DUSE_ASM_POLY -DUSE_ASM_XOBJ
 ifdef SOLO_C
 ASMDEFS =
 ASMOBJ  = src/qdos68k.o
@@ -44,9 +44,10 @@ src/%.o: src/%.s
 QLTOOLS ?= qltools
 QXLTOOL ?= qxltool
 WINMB   ?= 4
-DATOS    = build/demo.scn build/iberia.scn data/planeador.acf data/mono.acf data/bimotor.acf data/reactor.acf
+DATOS    = build/demo.scn build/iberia.scn data/planeador.acf data/mono.acf data/bimotor.acf data/reactor.acf \
+          data/planeador.src data/mono.src data/bimotor.src data/reactor.src
 
-DISCOFILES = boot qfs demo_scn iberia_scn planeador_acf mono_acf bimotor_acf reactor_acf
+DISCOFILES = boot qfs demo_scn iberia_scn planeador_acf mono_acf bimotor_acf reactor_acf planeador_src mono_src bimotor_src reactor_src
 
 $(DATOS):
 	$(MAKE) -f Makefile.pc datos

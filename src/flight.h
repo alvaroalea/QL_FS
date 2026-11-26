@@ -44,10 +44,18 @@ typedef struct {
     s32 wind_e, wind_n;         /* viento m/s Q16 (hacia donde sopla) */
     s32 accx, accy, accz;       /* restos de integracion (Q16 m) para no perder precision */
     int on_ground, stalled, stall_warn, crash;
+    int hit_wait;                  /* pasos de fisica sin comprobar colision con objetos (el avion no puede alcanzar ninguno antes) */
+    u32 hit_gen;                   /* generacion de teselas de la ultima comprobacion */
     u32 rnd;
     Engine e[2];
     const AircraftDef *ac;
     s32 KL;                     /* 0.5*rho0*S/m  Q16 */
+    s32 kls, sqs;               /* KL*sigma y sqrt(sigma) (Q16), de la altitud hk_last */
+    s32 hk_last;                /* altitud (m enteros) de la ultima atmosfera calculada */
+    s32 imass;                  /* 2^24 / masa */
+    s32 asym;                   /* guinada por empuje asimetrico (Q16), del ultimo calculo de motores */
+    s32 flap_tgt;               /* objetivo de flaps (Q16) para la posicion flaps_last de la palanca */
+    int flaps_last, eng_n;      /* eng_n: paso dentro del ciclo de ENG_N (0 = toca calcular motores) */
 } Flight;
 
 void flight_init(Flight *f, const AircraftDef *ac);

@@ -16,7 +16,11 @@ typedef struct {
     int fps10, lps10;      /* vistas 3D y cuadros de simulacion por segundo x10; -1 midiendo, -2 oculto */
 } PanelInfo;
 
-void panel_init(u8 *screen, const AircraftDef *ac);
+/* acf: ruta del fichero del avion; el fondo del panel se carga de su gemelo .src (volcado crudo de 32 KB de la pantalla) */
+void panel_init(u8 *screen, const AircraftDef *ac, const char *acf);
+#ifdef HOST
+void panel_build(u8 *screen, const AircraftDef *ac);   /* dibuja el fondo estatico (lo usa tools/mkpanel.c para generar los .src) */
+#endif
 /* part: 0..PANEL_PARTS-1 (grupo de instrumentos) ; el horizonte artificial
  * y el teletipo ATC se pintan siempre */
 void panel_update(u8 *screen, const Flight *f, const Radios *r, const Atc *a,

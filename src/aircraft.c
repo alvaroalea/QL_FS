@@ -44,8 +44,9 @@ int aircraft_load(AircraftDef *a, const char *fname)
     const char *p;
     int i, n;
     static s16 mv[MDL_MAXV * 3];
-    static u8 mf[MDL_MAXF];
-    int nv = 0, nfb = 0, nf = 0;
+    static u8 mf[MDL_MAXF + 64];
+    static u8 mg[64];                       /* segmentos del tren (extremo en y = 0): van al final del modelo para poder ocultarlos */
+    int nv = 0, nfb = 0, nf = 0, ngb = 0, ng = 0;
 
     if (!fp) return 0;
     memset(a, 0, sizeof(*a));
@@ -125,6 +126,12 @@ int aircraft_load(AircraftDef *a, const char *fname)
             if (k < 2) continue;
             attr = (fill < 0 ? FA_NOFILL : (fill & 15)) | (lc >= 0 ? (FA_OUTLINE | ((lc & 3) << 4)) : 0);
             if (key[0] == 'L') attr = lc & 3;
+            if (key[0] == 'L' && k == 2 && idx[0] >= 0 && idx[1] >= 0 && idx[0] < nv && idx[1] < nv &&
+                (mv[idx[0] * 3 + 1] == 0 || mv[idx[1] * 3 + 1] == 0) && ngb + 4 <= (int)sizeof(mg)) {
+                mg[ngb++] = 2; mg[ngb++] = (u8)attr; mg[ngb++] = (u8)idx[0]; mg[ngb++] = (u8)idx[1];
+                ng++;
+                continue;
+            }
             mf[nfb++] = (u8)k; mf[nfb++] = (u8)attr;
             for (i = 0; i < k; i++) mf[nfb++] = (u8)idx[i];
             nf++;
@@ -132,7 +139,9 @@ int aircraft_load(AircraftDef *a, const char *fname)
     }
     fclose(fp);
     if (!a->mass) return 0;
-    a->model.nv = nv; a->model.nf = nf; a->model.fbytes = nfb;
+    memcpy(mf + nfb, mg, (size_t)ngb);              /* tren al final */
+    nfb += ngb;
+    a->model.nv = nv; a->model.nf = nf + ng; a->model.ngear = ng; a->model.fbytes = nfb;
     a->model.v = (s16 *)malloc((size_t)(nv * 6 + 2));
     a->model.f = (u8 *)malloc((size_t)nfb + 2);
     if (!a->model.v || !a->model.f) return 0;

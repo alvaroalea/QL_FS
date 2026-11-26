@@ -33,7 +33,8 @@ s32 mdq(s32 a, s32 b, s32 d)
 }
 #endif
 
-/* (a<<16)/b sin 64 bits: se normaliza a hacia arriba y b hacia abajo */
+#ifndef USE_ASM_FXDIV
+/* (a<<16)/b sin 64 bits: se normaliza a hacia arriba y b hacia abajo. En el QL lo sustituye la version de ql68k.s (mismo resultado) */
 s32 fxdiv(s32 a, s32 b)
 {
     int s = 16, neg = 0;
@@ -45,6 +46,7 @@ s32 fxdiv(s32 a, s32 b)
     a = a / b;
     return neg ? -a : a;
 }
+#endif
 
 s32 isqrt32(u32 v)
 {

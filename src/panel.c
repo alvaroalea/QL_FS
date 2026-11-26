@@ -4,6 +4,8 @@
 #include "util.h"
 #include "platform.h"
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
 #define RX 40
 #define RY 27
@@ -14,6 +16,9 @@
 #define COL3 236
 #define COL4 328
 #define RB_X 376               /* bloque derecho */
+#define GEAR_LV_X 468          /* palanca del tren: guia vertical de 7 px y cuadrado de 3x3 */
+#define GEAR_LV_Y0 166
+#define GEAR_LV_Y1 172
 #define MSG_Y 229
 #define STAT_Y 241
 
@@ -22,6 +27,19 @@ static Surface S;
 static const AircraftDef *AC;
 static int asi_max;
 static s16 hw_tab[RY + 1];     /* semiancho del horizonte artificial por fila */
+
+/* Rosa del direccional: el patron de rayitas se repite cada 10 grados, asi que bastan GYN copias del fondo (anillo + rayitas
+ * cortas + centro negro) giradas de 1 en 1 grado. Al cambiar el rumbo se vuelca la copia (rumbo % 10) y encima solo se pintan
+ * las 12 rayitas largas y los numeros. */
+#define GYN 10
+#define GY_X0 (COL2 - RX - 2)
+#define GY_Y0 (ROW2 - RY - 1)
+#define GY_Y1 (ROW2 + RY + 1)
+#define GY_B0 (((GY_X0) >> 3) << 1)
+#define GY_N  (((((COL2 + RX + 2) >> 3) << 1) + 2) - GY_B0)
+#define GY_ROWS (GY_Y1 - GY_Y0 + 1)
+#define GY_SZ ((s32)GY_ROWS * GY_N)
+static u8 *gyro;               /* GYN copias de GY_ROWS filas x GY_N bytes */
 
 static void dpt(int cx, int cy, u16 a, int k, s32 *x, s32 *y)
 {
@@ -73,20 +91,37 @@ static u16 rpm_ang(s32 r, s32 max) { return (u16)(-24576L + r * 49152L / max); }
 
 static void panel_reset_state(void);
 
-/* ---------------------------------------------------------- fondo estatico */
-void panel_init(u8 *scr, const AircraftDef *ac)
+/* ---------------------------------------------------------- fondo estatico
+ * El fondo (anillos, escalas, etiquetas) se dibuja una sola vez, en el PC, con tools/mkpanel.c: sale un volcado crudo de la
+ * pantalla (32 KB) por avion (data/xxx.src) que el simulador carga al arrancar. */
+/* Palancas con barra (T gases, P paso, M mezcla, F flaps): solo las que tiene el avion, en columnas consecutivas */
+static int slot_x[4];                  /* x de la barra, -1 = el avion no la tiene */
+static const char slot_ch[4] = { 'T', 'P', 'M', 'F' };
+
+static void panel_setup(const AircraftDef *ac)
+{
+    int i, n = 0, has[4];
+    AC = ac;
+    has[0] = ac->eng_type != ENG_NONE;
+    has[1] = ac->eng_type != ENG_NONE && ac->prop_type == PROP_CS;
+    has[2] = ac->eng_type == ENG_PISTON;
+    has[3] = ac->n_flaps > 1;
+    for (i = 0; i < 4; i++) slot_x[i] = has[i] ? RB_X + 1 + 12 * n++ : -1;
+    for (i = 0; i <= RY; i++) hw_tab[i] = (s16)(isqrt32((u32)(RY * RY - i * i) * 256 * 9 / 4) * 1 / 16 - 1);
+    asi_max = ((ac->vne ? ac->vne : 160) * 6 / 5 + 19) / 20 * 20;
+}
+
+#ifdef HOST
+void panel_build(u8 *scr, const AircraftDef *ac)
 {
     int i, k;
     char b[8];
     s32 v;
-    AC = ac;
+    panel_setup(ac);
     gfx_init_surface(&S, scr, SCR_H);
     gfx_rect(&S, 0, PANEL_Y0 - 2, SCR_W - 1, SCR_H - 1, fill_tab[F_BLACK]);
     gfx_rect(&S, 0, PANEL_Y0 - 2, SCR_W - 1, PANEL_Y0 - 2, fill_tab[F_RED]);
     gfx_rect(&S, 0, MSG_Y - 3, SCR_W - 1, MSG_Y - 3, fill_tab[F_RED]);
-    for (i = 0; i <= RY; i++) hw_tab[i] = (s16)(isqrt32((u32)(RY * RY - i * i) * 256 * 9 / 4) * 1 / 16 - 1);
-
-    asi_max = ((ac->vne ? ac->vne : 160) * 6 / 5 + 19) / 20 * 20;
 
     /* ASI */
     ring(COL1, ROW1);
@@ -164,12 +199,74 @@ void panel_init(u8 *scr, const AircraftDef *ac)
     gfx_ellipse(&S, COL4, ROW2, 4, 3, C_WHITE);
 
     /* bloque derecho: etiquetas de palancas */
-    gfx_text(&S, RB_X + 1, 215, "T P M F", C_GREEN);
-    gfx_text(&S, 434, 176, "TREN", C_GREEN);
+    for (i = 0; i < 4; i++)
+        if (slot_x[i] >= 0) { char l[2]; l[0] = slot_ch[i]; l[1] = 0; gfx_text(&S, slot_x[i], 215, l, C_GREEN); }
+    if (ac->retract) {
+        gfx_text(&S, 434, 176, "TREN", C_GREEN);
+        gfx_line(&S, GEAR_LV_X, GEAR_LV_Y0, GEAR_LV_X, GEAR_LV_Y1, C_WHITE);     /* guia de la palanca del tren */
+    }
+}
+#endif
 
-    /* guardar copia limpia */
+/* "flp1_mono_acf" / "data/mono.acf" -> "flp1_mono_src" / "data/mono.src" */
+static void src_path(char *out, const char *acf)
+{
+    int n = (int)strlen(acf);
+    strcpy(out, acf);
+    if (n >= 3 && !strcmp(out + n - 3, "acf")) strcpy(out + n - 3, "src");
+    else strcat(out, ".src");
+}
+
+static int panel_load(u8 *scr, const char *acf)
+{
+    char path[80];
+    FILE *fp;
+    int ok;
+    src_path(path, acf);
+    fp = fopen(path, "rb");
+    if (!fp) return 0;
+    ok = fread(scr, 1, SCR_BYTES, fp) == SCR_BYTES;
+    fclose(fp);
+    return ok;
+}
+
+static void gyro_tick_set(int k)                 /* rayitas cortas con la rosa girada k grados */
+{
+    int i;
+    for (i = 0; i < 36; i++)
+        tick(COL2, ROW2, (u16)(((i * 10L - k + 360) % 360) * 65536L / 360), 226, 250, C_WHITE);
+    gfx_rect(&S, COL2 - 10, ROW2 - 4, COL2 + 10, ROW2 + 4, fill_tab[F_BLACK]);
+}
+
+static void gyro_build(void)
+{
+    int k, y;
+    if (!gyro) gyro = (u8 *)plat_alloc_hi(GY_SZ * GYN);
+    if (!gyro) return;
+    for (k = 0; k < GYN; k++) {
+        restore(COL2, ROW2);
+        gyro_tick_set(k);
+        for (y = GY_Y0; y <= GY_Y1; y++)
+            gfx_memcpy(gyro + k * GY_SZ + (s32)(y - GY_Y0) * GY_N, S.base + (s32)y * SCR_STRIDE + GY_B0, GY_N);
+    }
+    restore(COL2, ROW2);
+}
+
+void panel_init(u8 *scr, const AircraftDef *ac, const char *acf)
+{
+    panel_setup(ac);
+    gfx_init_surface(&S, scr, SCR_H);
+    if (!panel_load(scr, acf)) {
+#ifdef HOST
+        panel_build(scr, ac);                    /* sin .src: se dibuja (solo PC) */
+#else
+        gfx_rect(&S, 0, PANEL_Y0 - 2, SCR_W - 1, SCR_H - 1, fill_tab[F_BLACK]);
+        gfx_text(&S, 4, PANEL_Y0 + 4, "FALTA EL FICHERO DEL PANEL (.SRC)", C_RED);
+#endif
+    }
     if (!clean) clean = (u8 *)plat_alloc_hi((long)(SCR_H - PANEL_Y0) * SCR_STRIDE);   /* RAM alta: se lee a menudo */
     if (clean) gfx_memcpy(clean, scr + (s32)PANEL_Y0 * SCR_STRIDE, (s32)(SCR_H - PANEL_Y0) * SCR_STRIDE);
+    gyro_build();
     panel_reset_state();                 /* nada de lo dinamico esta pintado todavia */
 }
 
@@ -180,7 +277,9 @@ void panel_init(u8 *scr, const AircraftDef *ac)
  * se pintaria encima de una aguja a medias y al deshacerla quedarian puntos sueltos. */
 #define NONE (-30000)
 static int s_kt, s_alt, s_rpm[2], s_rpmt, s_vsi, s_bank, s_ball, s_hdg, s_ai_b, s_ai_h, s_cdi_x, s_cdi_y, s_cdi_col;
-static int s_cdi_loc, s_cdi_flag, s_cdi_obs, s_bar[4], s_gear, s_marker, s_stopped;
+static int s_cdi_loc, s_cdi_flag, s_cdi_obs, s_bar[7], s_gear, s_lever, s_marker, s_stopped;
+static int s_up_on;                    /* tren recogido y bloqueado: luces rojas hasta pasar unos segundos */
+static u32 s_up_t;
 static char s_rad[6][40], s_eng[4][24], s_msg[84], s_stat[84];
 static int s_warn, s_fps = -3;
 static u16 s_asi_a, s_alt_a1, s_alt_a2, s_rpm_a[2], s_vsi_a;
@@ -217,8 +316,9 @@ static void panel_reset_state(void)
     int i;
     s_kt = s_alt = s_rpmt = s_vsi = s_bank = s_ball = s_hdg = s_ai_b = s_ai_h = s_cdi_x = s_cdi_y = NONE;
     s_rpm[0] = s_rpm[1] = NONE;
-    s_cdi_loc = s_cdi_flag = s_cdi_obs = s_cdi_col = s_gear = s_marker = s_stopped = NONE;
-    for (i = 0; i < 4; i++) s_bar[i] = NONE;
+    s_cdi_loc = s_cdi_flag = s_cdi_obs = s_cdi_col = s_gear = s_lever = s_marker = s_stopped = NONE;
+    for (i = 0; i < 7; i++) s_bar[i] = NONE;
+    s_up_on = 0;
     for (i = 0; i < 6; i++) s_rad[i][0] = 1;       /* distinto de cualquier cadena real: se pinta la primera vez */
     for (i = 0; i < 4; i++) s_eng[i][0] = 1;
     s_msg[0] = 1; s_stat[0] = 1; s_warn = NONE; s_fps = -3;
@@ -366,20 +466,26 @@ static void draw_tc(const Flight *f)
 static void draw_hdg(const Flight *f)
 {
     u16 h = (u16)fxmul(f->psi, RAD2BAM), a;
-    int i, hd = (int)((((s32)h * 360L + 32768L) >> 16) % 360);
+    int j, y, hd = (int)((((s32)h * 360L + 32768L) >> 16) % 360);
     static const char *lab[12] = { "N", "3", "6", "E", "12", "15", "S", "21", "24", "W", "30", "33" };
     char b[6];
+    const u8 *p;
     if (hd == s_hdg) return;
-    s_hdg = hd;
-    h = (u16)((s32)hd * 182L + (hd * 4L) / 9);           /* rumbo al grado entero: la rosa solo gira de grado en grado */
-    restore(COL2, ROW2);
-    for (i = 0; i < 36; i++) {
-        a = (u16)(i * 1820L - h);
-        tick(COL2, ROW2, a, (i % 3) ? 226 : 196, 250, C_WHITE);
-        if (i % 3 == 0) label_at(COL2, ROW2, a, 150, lab[i / 3], i % 9 ? C_WHITE : C_GREEN);
+    s_hdg = hd;                                          /* la rosa solo gira de grado en grado */
+    if (gyro) {                                          /* fondo + rayitas cortas de una copia ya hecha */
+        p = gyro + (hd % GYN) * GY_SZ;
+        for (y = GY_Y0; y <= GY_Y1; y++, p += GY_N)
+            gfx_memcpy(S.base + (s32)y * SCR_STRIDE + GY_B0, p, GY_N);
+    } else {
+        restore(COL2, ROW2);
+        gyro_tick_set(hd % GYN);
+    }
+    for (j = 0; j < 12; j++) {                           /* rayitas largas y numeros, encima */
+        a = (u16)(((30L * j - hd + 360) % 360) * 65536L / 360);
+        tick(COL2, ROW2, a, 196, 226, C_WHITE);
+        label_at(COL2, ROW2, a, 150, lab[j], j % 3 ? C_WHITE : C_GREEN);
     }
     u_num(b, hd, 3, '0');
-    gfx_rect(&S, COL2 - 10, ROW2 - 4, COL2 + 10, ROW2 + 4, fill_tab[F_BLACK]);
     gfx_text(&S, COL2 - 8, ROW2 - 3, b, C_RED);
 }
 
@@ -452,17 +558,61 @@ static void draw_radios(const Radios *r, const PanelInfo *pi)
     line_txt(s_rad[5], RB_X, 149, b, C_GREEN);
 }
 
-/* barra de palanca: solo se pintan las filas que cambian respecto a la ultima vez */
-static void bar(int idx, int x, s32 v, int c)
+/* barra de palanca: solo se pintan las filas que cambian respecto a la ultima vez. top = 0: el color sube desde abajo (gases,
+ * paso, mezcla); top = 1: el color baja desde arriba (flaps: con 0 todo gris y arriba, la barra baja al dar grados) */
+static void bar(int idx, int x, int w, s32 v, int c, int top)
 {
-    int h = (int)(fxmul(CLAMP(v, 0, FX_ONE), FXI(44)) >> 16), o = s_bar[idx];
+    int h = (int)(fxmul(CLAMP(v, 0, FX_ONE), FXI(44)) >> 16), o = s_bar[idx], x1 = x + w - 1;
     if (h == o) return;
-    if (o == NONE) {
-        gfx_rect(&S, x, 168, x + 5, 212, fill_tab[F_DKGREY]);
-        gfx_rect(&S, x, 212 - h, x + 5, 212, fill_tab[c]);
-    } else if (h > o) gfx_rect(&S, x, 212 - h, x + 5, 212 - o, fill_tab[c]);
-    else gfx_rect(&S, x, 212 - o, x + 5, 212 - h - 1, fill_tab[F_DKGREY]);
+    if (top) {
+        if (o == NONE) {
+            gfx_rect(&S, x, 168, x1, 212, fill_tab[F_DKGREY]);
+            if (h) gfx_rect(&S, x, 168, x1, 167 + h, fill_tab[c]);
+        } else if (h > o) gfx_rect(&S, x, 168 + o, x1, 167 + h, fill_tab[c]);
+        else gfx_rect(&S, x, 168 + h, x1, 167 + o, fill_tab[F_DKGREY]);
+    } else if (o == NONE) {
+        gfx_rect(&S, x, 168, x1, 212, fill_tab[F_DKGREY]);
+        gfx_rect(&S, x, 212 - h, x1, 212, fill_tab[c]);
+    } else if (h > o) gfx_rect(&S, x, 212 - h, x1, 212 - o, fill_tab[c]);
+    else gfx_rect(&S, x, 212 - o, x1, 212 - h - 1, fill_tab[F_DKGREY]);
     s_bar[idx] = h;
+}
+
+/* palanca de motor (gases, paso, mezcla): una barra de 6 px, o dos de 2 px (motor izquierdo y derecho) en los bimotores */
+static void lever(int slot, const s32 *v, int c)
+{
+    int x = slot_x[slot];
+    if (x < 0) return;
+    if (AC->n_eng > 1) { bar(slot, x, 2, v[0], c, 0); bar(4 + slot, x + 4, 2, v[1], c, 0); }
+    else bar(slot, x, 6, v[0], c, 0);
+}
+
+/* luces del tren (centro, izquierda, derecha): al bajar se ponen verdes por ese orden segun avanza el tren; al subir, al reves
+ * (primero las laterales, luego la central). Con el tren recogido y bloqueado, rojas unos segundos y luego apagadas (gris). */
+static void draw_gear(const Flight *f)
+{
+    static const int gx[3] = { 443, 434, 452 }, gy[3] = { 164, 167, 167 };
+    static const u8 col[3] = { F_DKGREY, F_RED, F_GREEN };
+    s32 g = f->gear_pos;
+    int l[3], i, key, lv = f->gear_down ? 1 : 0, y;
+    l[0] = g >= FXF(55, 100) ? 2 : 1;
+    l[1] = g >= FXF(80, 100) ? 2 : 1;
+    l[2] = g >= FX_ONE ? 2 : 1;
+    if (g <= 0 && !f->gear_down) {
+        if (!s_up_on) { s_up_on = 1; s_up_t = plat_ticks() - (s_gear == NONE ? 1000UL : 0UL); }
+        if (plat_ticks() - s_up_t > 150UL) l[0] = l[1] = l[2] = 0;           /* 3 s */
+    } else s_up_on = 0;
+    key = l[0] + 3 * l[1] + 9 * l[2];
+    if (key != s_gear) {
+        for (i = 0; i < 3; i++) gfx_rect(&S, gx[i], gy[i], gx[i] + 6, gy[i] + 5, fill_tab[col[l[i]]]);
+        s_gear = key;
+    }
+    if (lv != s_lever) {                                                    /* palanca: cuadrado arriba (recoger) o abajo (sacar) */
+        restore_box(GEAR_LV_X - 4, GEAR_LV_Y0 - 3, GEAR_LV_X + 3, GEAR_LV_Y1 + 2);
+        y = lv ? GEAR_LV_Y1 - 2 : GEAR_LV_Y0;
+        gfx_rect(&S, GEAR_LV_X - 1, y, GEAR_LV_X + 1, y + 2, fill_tab[F_WHITE]);
+        s_lever = lv;
+    }
 }
 
 static void eng_txt(char *last, int y, const char *t, int c)
@@ -476,17 +626,12 @@ static void eng_txt(char *last, int y, const char *t, int c)
 static void draw_engine(const Flight *f, const Radios *r)
 {
     char b[24];
-    int i, gc, gs;
-    bar(0, RB_X + 1, f->thr[0], F_WHITE);
-    bar(1, RB_X + 13, AC->prop_type == PROP_CS ? f->prop[0] : 0, F_GREEN);
-    bar(2, RB_X + 25, f->mix[0], F_RED);
-    bar(3, RB_X + 37, f->flap_pos, F_ORANGE);
-    gs = !AC->retract ? 2 : (f->gear_pos >= FX_ONE ? 2 : (f->gear_pos > 0 ? 1 : 0));
-    if (gs != s_gear) {
-        gc = gs == 2 ? F_GREEN : (gs == 1 ? F_RED : F_DKGREY);
-        for (i = 0; i < 3; i++) gfx_rect(&S, 434 + i * 9, 167, 440 + i * 9, 172, fill_tab[gc]);
-        s_gear = gs;
-    }
+    int gs;
+    lever(0, f->thr, F_WHITE);
+    lever(1, f->prop, F_GREEN);
+    lever(2, f->mix, F_RED);
+    if (slot_x[3] >= 0) bar(3, slot_x[3], 6, f->flap_pos, F_ORANGE, 1);
+    if (AC->retract) draw_gear(f);
     if (AC->eng_type == ENG_PISTON) {
         u_cpy(b, "MAP ", 24); { char t[10]; u_dec1(t, fxmul(f->e[0].map, FXI(10)) >> 16, 4); u_cat(b, t, 24); }
         eng_txt(s_eng[0], 184, b, C_WHITE);

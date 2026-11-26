@@ -30,6 +30,9 @@ void flight_init(Flight *f, const AircraftDef *ac)
     f->auto_coord = 1;
     f->gear_down = 1; f->gear_pos = FX_ONE;
     f->rnd = 12345;
+    f->imass = (1L << 24) / ac->mass;
+    f->hk_last = -1;
+    f->eng_n = 0;
     for (i = 0; i < 2; i++) {
         f->mix[i] = FX_ONE; f->prop[i] = FX_ONE;
         f->e[i].running = (ac->eng_type != ENG_NONE && i < ac->n_eng);
@@ -48,9 +51,11 @@ void flight_place(Flight *f, s32 x_m, s32 y_m, s32 z_m, u16 hdg_bam, s32 v_ms, i
     f->alf = on_ground ? f->ac->pitch_gnd : 3 * FX_DEG;
     f->the = f->alf;
     f->crash = CRASH_NONE;
+    f->hit_wait = 0;
+    f->eng_n = 0; f->hk_last = -1;       /* recalcula atmosfera y motores en el primer paso */
 }
 
-static void engines_step(Flight *f, s32 *t_left, s32 *t_right)
+static void engines_step(Flight *f, s32 *t_left, s32 *t_right, s32 dt)
 {
     const AircraftDef *a = f->ac;
     int i;
@@ -64,26 +69,29 @@ static void engines_step(Flight *f, s32 *t_left, s32 *t_right)
             s32 r, mf, pf, pfs, rpm_t, eta, pw, gov;
             r = fxdiv(f->mix[i], f->sigma);              /* mezcla relativa */
             mf = fxlerp_tab(mix_tab, 13, r << 2);
+            mf = MIN(fxmul(mf, 67563L), FX_ONE);   /* mf / 63570 en Q16 (65536*65536/63570) */         /* normalizada: con la mezcla justa (maximo de la tabla) es 1 y se llega a plena potencia */
             if (f->mix[i] < FXF(5, 100) || mf < FXF(1, 10)) e->running = 0;
             else if (!e->running && f->starter && f->fuel > 0) e->running = 1;
             e->map = fxmul(fxmul(FXF(2992, 100), f->delta), FXF(3, 10) + fxmul(FXF(7, 10), thr));
-            pfs = e->running ? fxmul(fxdiv(e->map, FXF(2992, 100)), mf) : 0;
-            /* rpm de equilibrio: paso fijo -> depende de potencia y velocidad */
-            rpm_t = a->rpm_idle + fxmul(a->rpm_static - a->rpm_idle, pfs)
-                  + fxmul(a->rpm_max - a->rpm_static, fxmul(MIN(f->v / 60, FX_ONE), FXF(3, 10) + fxmul(FXF(7, 10), pfs)));
+            pfs = e->running ? fxmul(fxmul(e->map, 2190L), mf) : 0;   /* map / 29.92 (2190 = 65536/29.92) */
+            /* rpm de equilibrio: paso fijo -> a gas maximo y mezcla justa parte de rpm_static y llega a rpm_max (linea roja del
+             * cuentarrevoluciones) al coger velocidad (a 40 m/s, unos 78 kt) */
+            gov = MIN(pfs + pfs / 20, FX_ONE);           /* carga de la helice: a gas maximo y mezcla justa sale 1.0 aunque la densidad reste algo */
+            rpm_t = a->rpm_idle + fxmul(a->rpm_static - a->rpm_idle, gov)
+                  + fxmul(a->rpm_max - a->rpm_static, fxmul(MIN(fxmul(f->v, 1638L), FX_ONE), FXF(3, 10) + fxmul(FXF(7, 10), gov)));
             if (!e->running) rpm_t = vint * 25L << 16;
             if (a->prop_type == PROP_CS && e->running) {
                 gov = FXI(1800) + fxmul(a->rpm_max - FXI(1800), f->prop[i]);
                 if (rpm_t > gov || pfs > FXF(4, 10)) rpm_t = gov;
             }
             rpm_t = MIN(rpm_t, a->rpm_max + a->rpm_max / 10);
-            e->rpm += fxmul(rpm_t - e->rpm, PHYS_DT * 2);
+            e->rpm += fxmul(rpm_t - e->rpm, dt * 2);
             pf = fxmul(pfs, fxdiv(e->rpm, a->rpm_max));
             e->power = fxmul(a->power, pf);
             pw = (e->power >> 16) * 1000L + (((e->power & 0xFFFF) * 1000L) >> 16);
-            eta = a->prop_type == PROP_CS ? FXF(82, 100) : FXF(76, 100);
+            eta = a->prop_type == PROP_CS ? FXF(82, 100) : FXF(80, 100);
             T = fxmul(pw, eta) / MAX(vint, 1);
-            T = MIN(T, (pw / 1000L) * (a->prop_type == PROP_CS ? 17 : 15));
+            T = MIN(T, (pw / 1000L) * (a->prop_type == PROP_CS ? 17 : 26));   /* traccion estatica maxima, N por kW */
             if (!e->running) T = -(vint * vint) / 8;  /* helice en molinete: resistencia */
             r = ABS(r - FXF(8, 10));
             e->egt = FXI(250) + fxmul(FXI(550), fxmul(pfs, MAX(FX_ONE - fxmul(r, FXF(6, 5)), FXF(3, 10))));
@@ -94,7 +102,7 @@ static void engines_step(Flight *f, s32 *t_left, s32 *t_right)
             if (!e->running && f->starter && f->fuel > 0 && f->mix[i] > FXF(5, 100)) e->running = 1;
             if (f->mix[i] < FXF(5, 100)) e->running = 0;   /* palanca de corte */
             d = n1t - e->n1;
-            x = fxmul(a->spool, PHYS_DT);
+            x = fxmul(a->spool, dt);
             e->n1 += CLAMP(d, -x * 2, x);
             x = MAX(e->n1 - FXF(2, 10), 0);
             x = fxdiv(x, FXF(8, 10));
@@ -112,30 +120,57 @@ static void engines_step(Flight *f, s32 *t_left, s32 *t_right)
     if (a->n_eng == 1) *t_right = 0;
 }
 
+#ifndef ENG_N
+#define ENG_N 4             /* pasos de fisica por cada calculo de motores (y de la velocidad sobre el suelo) */
+#endif
+#ifndef HIT_SKIP_MAX
+#define HIT_SKIP_MAX 25     /* maximo de pasos de fisica seguidos sin comprobar colision */
+#endif
+
 void flight_step(Flight *f, World *w)
 {
     const AircraftDef *a = f->ac;
-    s32 hk, ft, gt, cl, cd, clmax, as, vi, v2, qa, tl, tr, tt;
-    s32 sg, cg, sp, cp, sa, ca, vc, dv, dg, dpsi, acmd, qn, pc, gz, vh, dx, dy;
+    s32 hk, gt, cl, cd, clmax, as, vi, v2, qa, tl, tr, tt;
+    s32 sg, cg, sp, cp, sa, ca, vc, dv, dg, dpsi, acmd, qn, pc, gz, vh, dx, dy, vr;
     s32 asym, fp;
-    int was_ground = f->on_ground, hit;
+    int was_ground = f->on_ground, hit, tick = (f->eng_n == 0);
 
     if (f->crash) return;
-    /* atmosfera */
+    /* atmosfera: solo se rehace al cambiar la altitud (en metros enteros); sigma y delta, y lo que sale de ellas, se guardan */
     hk = MAX(f->z >> 8, 0);
-    f->sigma = fxlerp_tab(atm_sigma, 17, (hk << 16) / 1000);
-    f->delta = fxlerp_tab(atm_delta, 17, (hk << 16) / 1000);
+    if (hk != f->hk_last) {
+        s32 hx = hk * 65536L / 1000;            /* (division poco frecuente: una vez por metro de altitud) */
+        f->hk_last = hk;
+        f->sigma = fxlerp_tab(atm_sigma, 17, hx);
+        f->delta = fxlerp_tab(atm_delta, 17, hx);
+        f->kls = fxmul(f->KL, f->sigma);
+        f->sqs = isqrt32((u32)f->sigma) << 8;
+    }
 
     /* flaps (0.2/s) y tren (0.25/s) */
-    ft = a->n_flaps > 1 ? (s32)f->flaps * FX_ONE / (a->n_flaps - 1) : 0;
-    f->flap_pos += CLAMP(ft - f->flap_pos, -PHYS_DT / 5, PHYS_DT / 5);
+    if (f->flaps != f->flaps_last) {            /* objetivo de los flaps: solo cuando cambia la palanca */
+        f->flaps_last = f->flaps;
+        f->flap_tgt = a->n_flaps > 1 ? (s32)f->flaps * FX_ONE / (a->n_flaps - 1) : 0;
+    }
+    f->flap_pos += CLAMP(f->flap_tgt - f->flap_pos, -PHYS_DT / 5, PHYS_DT / 5);
     gt = (f->gear_down || !a->retract) ? FX_ONE : 0;
     if (f->on_ground) gt = FX_ONE;
     f->gear_pos += CLAMP(gt - f->gear_pos, -PHYS_DT / 4, PHYS_DT / 4);
     fp = f->flap_pos;
 
-    engines_step(f, &tl, &tr);
-    tt = tl + tr;
+    /* motores: cambian despacio (constantes de tiempo de medio segundo o mas), asi que se calculan cada ENG_N pasos con el
+     * paso de tiempo multiplicado; en los demas se reutiliza el empuje (aT y asimetria, en Q16) del ultimo calculo */
+    if (tick) {
+        s32 ff;
+        engines_step(f, &tl, &tr, PHYS_DT * ENG_N);
+        tt = tl + tr;
+        f->aT = fxmul(tt << 4, f->imass) << 4;                  /* tt / mass en Q16 */
+        f->asym = a->n_eng == 2 ? fxmul(fxmul((tl - tr) << 4, f->imass) << 4, a->eng_y / 3) : 0;   /* (T1-T2)/m * brazo/3 */
+        ff = f->e[0].ff + (a->n_eng > 1 ? f->e[1].ff : 0);      /* combustible */
+        f->fuel -= fxmul(ff, PHYS_DT * ENG_N) / 3600;
+        if (f->fuel < 0) f->fuel = 0;
+    }
+    if (++f->eng_n >= ENG_N) f->eng_n = 0;
 
     /* aerodinamica */
     as = a->alpha_stall - fxmul(a->dalpha_flap, fp);
@@ -155,11 +190,10 @@ void flight_step(Flight *f, World *w)
     if (f->stalled) cd += fxmul(FXF(3, 10), ABS(f->alf - as));
 
     vi = f->v >> 12;                      /* Q4 */
-    v2 = vi * vi;                         /* V^2 Q8 */
-    qa = fxmul(fxmul(f->KL, f->sigma), v2);   /* Q8 */
+    v2 = MULS16(vi, vi);                  /* V^2 Q8 (vi cabe en 16 bits: V < 2000 m/s) */
+    qa = fxmul(f->kls, v2);               /* Q8 */
     f->aL = fxmul(qa, cl) << 8;
     f->aD = fxmul(qa, cd) << 8;
-    f->aT = ((tt << 8) / a->mass) << 8;
 
     sg = fxsin(f->gam); cg = fxcos(f->gam);
     sp = fxsin(f->phi); cp = fxcos(f->phi);
@@ -172,26 +206,22 @@ void flight_step(Flight *f, World *w)
     dpsi = fxdiv(fxmul(f->aL, sp), fxmul(vc, MAX(cg, FXF(1, 10))));
 
     /* cabeceo: el elevador fija la incidencia de equilibrio */
-    qn = MIN(fxdiv(fxmul(f->v >> 4, f->v >> 4), fxmul(a->vref >> 4, a->vref >> 4)), FXI(3));
+    vr = fxdiv(f->v, a->vref);
+    qn = MIN(fxmul(vr, vr), FXI(3));
     acmd = 2 * FX_DEG + fxmul(CLAMP(f->elev + f->trim, -FX_ONE, FX_ONE), a->pitch_auth);
     f->q += fxmul(PHYS_DT, fxmul(fxmul(FXI(18), acmd - f->alf), qn) - fxmul(FXI(5), f->q));
 
     /* alabeo */
-    pc = fxmul(fxmul(f->ail, a->roll_rate), MIN(fxdiv(f->v, a->vref), FXF(3, 2)));
+    pc = fxmul(fxmul(f->ail, a->roll_rate), MIN(vr, FXF(3, 2)));
     if (f->stalled && !f->on_ground && f->alf > as + FX_DEG && (rnd(f) & 15) == 0)
         f->p += (rnd(f) & 1) ? FXF(3, 10) : -FXF(3, 10);      /* caida de ala */
     f->p += fxmul(PHYS_DT * 4, pc - f->p);
 
     /* guinada: timon (si no hay coordinacion automatica) y empuje asimetrico */
-    asym = 0;
-    if (a->n_eng == 2)          /* (T1-T2)/m * brazo/3 */
-        asym = fxmul((((tl - tr) << 8) / a->mass) << 8, a->eng_y / 3);
-    if (!f->auto_coord) dpsi += fxmul(fxmul(f->rud, FXF(15, 100)), MIN(fxdiv(f->v, a->vref), FX_ONE));
+    asym = f->asym;
+    if (!f->auto_coord) dpsi += fxmul(fxmul(f->rud, FXF(15, 100)), MIN(vr, FX_ONE));
     dpsi += fxdiv(asym, vc);
     f->slip = CLAMP((f->auto_coord ? 0 : f->rud) - fxmul(asym, FXF(1, 2)), -FX_ONE, FX_ONE);
-
-    gz = (s32)world_ground(w, f->x >> 8, f->y >> 8) << 16;
-    f->agl = (f->z << 8) - gz - a->gear_h;
 
     if (f->on_ground) {
         s32 mu = f->brakes ? FXF(40, 100) : FXF(2, 100);
@@ -230,19 +260,12 @@ void flight_step(Flight *f, World *w)
     dx = fxmul(vh, fxsin(f->psi)) + (f->on_ground ? 0 : f->wind_e);
     dy = fxmul(vh, fxcos(f->psi)) + (f->on_ground ? 0 : f->wind_n);
     f->vs = fxmul(f->v, sg);
-    f->gs = isqrt32((u32)(MULS16(dx >> 12, dx >> 12) + MULS16(dy >> 12, dy >> 12))) << 12;
+    if (tick) f->gs = isqrt32((u32)(MULS16(dx >> 12, dx >> 12) + MULS16(dy >> 12, dy >> 12))) << 12;   /* solo se muestra: cada ENG_N pasos */
     /* integracion con resto: el paso puede ser menor que 1/256 m */
     f->accx += fxmul(dx, PHYS_DT); f->x += f->accx >> 8; f->accx &= 255;
     f->accy += fxmul(dy, PHYS_DT); f->y += f->accy >> 8; f->accy &= 255;
     f->accz += fxmul(f->vs, PHYS_DT); f->z += f->accz >> 8; f->accz &= 255;
-    f->ias = fxmul(f->v, isqrt32((u32)f->sigma) << 8);
-
-    /* combustible */
-    {
-        s32 ff = f->e[0].ff + (a->n_eng > 1 ? f->e[1].ff : 0);
-        f->fuel -= fxmul(ff, PHYS_DT) / 3600;
-        if (f->fuel < 0) f->fuel = 0;
-    }
+    f->ias = fxmul(f->v, f->sqs);
 
     /* contacto con el suelo */
     gz = (s32)world_ground(w, f->x >> 8, f->y >> 8) << 16;
@@ -259,9 +282,19 @@ void flight_step(Flight *f, World *w)
             f->vs = 0; f->gam = 0; f->phi = 0; f->p = 0;
         }
     }
-    hit = world_hit(w, f->x >> 8, f->y >> 8, f->z >> 8);
-    if (hit == 1) f->crash = CRASH_BUILDING;
-    else if (hit == 2) f->crash = CRASH_MOUNTAIN;
-    else if (hit == 3 && f->agl <= FXI(1)) f->crash = CRASH_WATER;
+    /* colision con objetos: solo cuando el avion puede haber llegado a alguno. world_hit devuelve en hit_near la distancia
+     * horizontal al objeto mas cercano; hasta recorrerla (a la velocidad del suelo, con margen) no hay nada que comprobar */
+    if (f->hit_wait > 0 && f->hit_gen == w->gen) f->hit_wait--;
+    else {
+        s32 step, n;
+        hit = world_hit(w, f->x >> 8, f->y >> 8, f->z >> 8);
+        if (hit == 1) f->crash = CRASH_BUILDING;
+        else if (hit == 2) f->crash = CRASH_MOUNTAIN;
+        else if (hit == 3 && f->agl <= FXI(1)) f->crash = CRASH_WATER;
+        step = ((f->gs >> 16) + (f->v >> 16) + 2) / 25 + 1;        /* m por paso (1/25 s), por exceso */
+        n = w->hit_near / step - 1;
+        f->hit_wait = (int)CLAMP(n, 0L, (s32)HIT_SKIP_MAX);
+        f->hit_gen = w->gen;
+    }
     if (a->vne && (MS2KT(f->ias) >> 16) > a->vne + a->vne / 8) f->crash = CRASH_OVERSTRESS;
 }

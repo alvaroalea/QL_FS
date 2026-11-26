@@ -2,6 +2,12 @@
  * ensamblador (gfx68k.s); se usan las de C si no se define USE_ASM_GFX. */
 #include "gfx.h"
 
+/* ql68k.s (gfx_poly32, draw_lights) lee Surface por desplazamientos fijos */
+#ifdef PLAT_QL
+#define SOFF(f) ((int)((char *)&((Surface *)0)->f - (char *)0))
+typedef char chk_surf[(SOFF(base) == 0 && SOFF(cx0) == 6 && SOFF(cy0) == 8 && SOFF(cx1) == 10 && SOFF(cy1) == 12) ? 1 : -1];
+#endif
+
 const Fill fill_tab[16] = {
     0x00000000UL, 0x00FF00FFUL, 0xFF00FF00UL, 0xFFFFFFFFUL,
     0xAAAA5555UL,             /* gris */
@@ -129,6 +135,7 @@ void gfx_line_xor(u8 *base, s32 x0, s32 y0, s32 x1, s32 y1, s32 c)
 }
 #endif
 
+#ifndef USE_ASM_POLY          /* en el QL es gfx_hspan de ql68k.s */
 void gfx_hspan(Surface *s, int y, int x0, int x1, Fill f)
 {
     int t;
@@ -140,6 +147,7 @@ void gfx_hspan(Surface *s, int y, int x0, int x1, Fill f)
     gfx_hspan_raw(s->base + (s32)y * SCR_STRIDE, x0, x1,
                   (s32)((y & 1) ? (f & 0xFFFFUL) : (f >> 16)));
 }
+#endif
 
 void gfx_rect(Surface *s, int x0, int y0, int x1, int y1, Fill f)
 {
@@ -171,33 +179,42 @@ static int outcode(const Surface *s, s32 x, s32 y)
     return c;
 }
 
-static int nbits(s32 v)                      /* bits significativos (busqueda binaria) */
+#ifndef USE_ASM_POLY
+/* floor(ad*an/aden) exacto (producto de 64 bits y division 64/32 por restas), 0x7FFFFFFF si no cabe en 32 bits: la misma cuenta que
+ * ld_core en ql68k.s */
+static u32 mulq(u32 ad, u32 an, u32 aden)
 {
-    int n = 0;
-    if (v < 0) v = -v;
-    if (v >> 16) { v >>= 16; n = 16; }
-    if (v >> 8) { v >>= 8; n += 8; }
-    if (v >> 4) { v >>= 4; n += 4; }
-    if (v >> 2) { v >>= 2; n += 2; }
-    if (v >> 1) { v >>= 1; n += 1; }
-    return n + (int)v;
+    u32 al = ad & 0xFFFFUL, ah = ad >> 16, bl = an & 0xFFFFUL, bh = an >> 16;
+    u32 ll = al * bl, hl = ah * bl, lh = al * bh, hh = ah * bh, mid = hl + lh, hi, lo, r, q;
+    int i, c = mid < hl;
+    hi = hh + (mid >> 16) + ((u32)c << 16);
+    lo = ll + (mid << 16);
+    if (lo < ll) hi++;
+    if (hi >= aden) return 0x7FFFFFFFUL;
+    r = hi; q = lo;
+    for (i = 0; i < 32; i++) {
+        c = (int)((q >> 31) & 1);
+        q <<= 1;
+        r = (r << 1) | (u32)c;
+        if (r >= aden) { r -= aden; q |= 1; }
+    }
+    return q;
 }
 
-/* interpolacion segura: a + (b-a)*num/den sin desbordar 32 bits */
-static s32 lerp_div(s32 a, s32 b, s32 num, s32 den)
+/* interpolacion a + (b-a)*num/den, truncada hacia cero y exacta */
+s32 lerp_div(s32 a, s32 b, s32 num, s32 den)
 {
     s32 d = b - a;
-    int k = 0;
-    s32 q;
+    int neg = 0;
+    u32 q;
     if (den == 0) return a;
-    q = mdq(d, num, den);                    /* via rapida: MULS + DIVS */
-    if (q != MDQ_BIG) return a + q;
-    while (nbits(d) + nbits(num) > 30) {
-        if (ABS(num) > ABS(d)) { num >>= 1; den >>= 1; if (den == 0) return a; }
-        else { d >>= 1; k++; }
-    }
-    return a + (((d * num) / den) << k);
+    if (d < 0) { d = -d; neg ^= 1; }
+    if (num < 0) { num = -num; neg ^= 1; }
+    if (den < 0) { den = -den; neg ^= 1; }
+    q = mulq((u32)d, (u32)num, (u32)den);
+    return a + (neg ? -(s32)q : (s32)q);
 }
+#endif
 
 /* recorta el segmento a la ventana de la superficie; 0 si queda fuera */
 static int line_clip(const Surface *s, s32 *px0, s32 *py0, s32 *px1, s32 *py1)
@@ -219,10 +236,19 @@ static int line_clip(const Surface *s, s32 *px0, s32 *py0, s32 *px1, s32 *py1)
     return 1;
 }
 
-void gfx_line(Surface *s, s32 x0, s32 y0, s32 x1, s32 y1, int c)
+/* recorte general (Cohen-Sutherland); con USE_ASM_POLY gfx_line (ql68k.s) resuelve antes los casos triviales y solo llama aqui para
+ * los segmentos que cruzan el borde */
+void gfx_line_c(Surface *s, s32 x0, s32 y0, s32 x1, s32 y1, int c)
 {
     if (line_clip(s, &x0, &y0, &x1, &y1)) gfx_line_raw(s->base, x0, y0, x1, y1, c);
 }
+
+#ifndef USE_ASM_POLY
+void gfx_line(Surface *s, s32 x0, s32 y0, s32 x1, s32 y1, int c)
+{
+    gfx_line_c(s, x0, y0, x1, y1, c);
+}
+#endif
 
 /* igual con OR exclusivo (dos veces la misma linea la borra, sin tocar lo que hubiera debajo) */
 void gfx_line_xor_s(Surface *s, s32 x0, s32 y0, s32 x1, s32 y1, int c)
@@ -232,6 +258,7 @@ void gfx_line_xor_s(Surface *s, s32 x0, s32 y0, s32 x1, s32 y1, int c)
 
 /* --- poligono: recorte Sutherland-Hodgman 2D + relleno por scanline --- */
 #define PMAX 24
+#ifndef USE_ASM_POLY
 static int clip_edge(const s32 *in, int n, s32 *out, int edge, s32 lim)
 {
     int i, m = 0, ia, ib;
@@ -260,8 +287,7 @@ static int clip_edge(const s32 *in, int n, s32 *out, int edge, s32 lim)
     }
     return m;
 }
-
-void gfx_poly32(Surface *s, int n, const s32 *xy, Fill f);
+#endif
 
 void gfx_poly(Surface *s, int n, const s16 *xy, Fill f)
 {
@@ -335,13 +361,12 @@ int gfx_fill_convex(u8 *base, const s32 *p, int m, s32 fill)
 }
 #endif
 
+#ifndef USE_ASM_POLY
 void gfx_poly32(Surface *s, int n, const s32 *xy, Fill f)
 {
     s32 a[PMAX * 2], b[PMAX * 2];
-    s32 ex[PMAX], edx[PMAX], xs[PMAX];
-    s16 ey0[PMAX], ey1[PMAX];
-    int i, j, m, ne, ymin, ymax, y, k, inside = 1;
-    s32 x0, y0, x1, y1, t, lx = 32767, hx = -32768, ly = 32767, hy = -32768;
+    int i, m, inside = 1;
+    s32 x0, y0, lx = 32767, hx = -32768, ly = 32767, hy = -32768;
     const s32 *src;
 
     if (n < 3) return;
@@ -366,6 +391,17 @@ void gfx_poly32(Surface *s, int n, const s32 *xy, Fill f)
     }
     if (m < 3) return;
     if (m <= PMAX && gfx_fill_convex(s->base, src, m, (s32)f)) return;
+    gfx_poly_gen(s, m, src, f);
+}
+#endif
+
+/* relleno general (cualquier poligono, no solo convexo) de m vertices ya recortados a la ventana */
+void gfx_poly_gen(Surface *s, int m, const s32 *src, Fill f)
+{
+    s32 ex[PMAX], edx[PMAX], xs[PMAX];
+    s16 ey0[PMAX], ey1[PMAX];
+    int i, j, ne, ymin, ymax, y, k;
+    s32 x0, y0, x1, y1, t;
 
     /* tabla de aristas: x en Q16 en el centro de la fila */
     ne = 0; ymin = 32767; ymax = -32768;

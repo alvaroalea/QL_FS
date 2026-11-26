@@ -38,6 +38,7 @@ src/        qfs.h fixmath.c tables.c(gen) gfx.c view3d.c world.c aircraft.c flig
             platform_ql.c main_ql.c (QL)   platform_host.c (PC)
 tools/      libro.sh dibujos_aviones.py panel_anotado.py gentables.py mkscen.py mkaviones.py qlscr2png.py iberia.py mapa_scn.py cartas.py cartas_a5.py procdesign.py
 data/       demo.txt, iberia.txt (escenarios fuente)  planeador/mono/bimotor/reactor.acf
+            planeador/mono/bimotor/reactor.src (fondo del panel de cada avion: volcado crudo de 32 KB; lo genera tools/mkpanel.c)
 tests/      hosttest.c iberiatest.c
 doc/libro/  manual.md (fuente del libro), metadata.yaml, header.tex, cover.tex, aviso.lua, img/
 Makefile    QL con qcc (por defecto: build/qfs.img y build/qfs.win)
