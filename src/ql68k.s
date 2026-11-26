@@ -895,6 +895,60 @@ gp_ret: movem.l (a7)+,d2-d7/a2-a5
         unlk    a6
         rts
 
+; ---------------------------------------------------------------- sdiv32
+; s32 sdiv32(s32 a, s32 b): a / b truncado hacia cero (0 si b = 0). Si |b| < 65536, dos DIVU encadenadas; si no, restas sucesivas.
+        .globl  _sdiv32
+_sdiv32:
+        movem.l d2-d4,-(a7)
+        move.l  16(a7),d0               ; a
+        move.l  20(a7),d1               ; b
+        beq     sd_zero
+        moveq   #0,d4                   ; signo
+        tst.l   d0
+        bpl     sd_1
+        neg.l   d0
+        not.w   d4
+sd_1:   tst.l   d1
+        bpl     sd_2
+        neg.l   d1
+        not.w   d4
+sd_2:   move.l  d1,d2
+        swap    d2
+        tst.w   d2
+        bne     sd_big
+        move.l  d0,d2                   ; |a|
+        clr.w   d0
+        swap    d0                      ; palabra alta
+        divu    d1,d0                   ; r:q1
+        move.w  d0,d3                   ; q1
+        clr.w   d0
+        move.w  d2,d0                   ; resto:palabra baja
+        divu    d1,d0                   ; r2:q2
+        and.l   #$FFFF,d0
+        swap    d3
+        clr.w   d3
+        or.l    d3,d0
+        bra     sd_sg
+sd_big: move.l  d0,d2                   ; dividendo (se va llenando de cociente)
+        moveq   #0,d0                   ; resto
+        moveq   #31,d3
+sd_lp:  add.l   d2,d2
+        addx.l  d0,d0
+        cmp.l   d1,d0
+        bcs     sd_nx
+        sub.l   d1,d0
+        addq.l  #1,d2
+sd_nx:  dbra    d3,sd_lp
+        move.l  d2,d0
+sd_sg:  tst.w   d4
+        beq     sd_end
+        neg.l   d0
+sd_end: movem.l (a7)+,d2-d4
+        rts
+sd_zero:
+        moveq   #0,d0
+        bra     sd_end
+
 ; ---------------------------------------------------------------- gfx_line
 ; void gfx_line(Surface *s, s32 x0, s32 y0, s32 x1, s32 y1, int c)
 ;   Linea recortada a la ventana de s. Los casos triviales se resuelven aqui: los dos extremos dentro -> gfx_line_raw; los dos

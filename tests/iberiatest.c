@@ -68,7 +68,10 @@ int main(void)
             int j; s32 best = 0x7FFFFFFFL;
             for (j = 0; j < sim.w.nnav; j++) {
                 const Nav *n = &sim.w.nav[j];
-                s32 dx = (n->x - (sim.f.x >> 8)) >> 7, dy = (n->y - (sim.f.y >> 8)) >> 7, d = dx * dx + dy * dy;
+                /* el localizador de la cabecera 0 esta a len+300 m de su umbral (con pistas paralelas, el mas cercano al avion puede ser otro) */
+                s32 lx = ap->rwy[0].tx + (isin(ap->rwy[0].hdg) * ((s32)ap->rwy[0].len + 300) >> 14);
+                s32 ly = ap->rwy[0].ty + (icos(ap->rwy[0].hdg) * ((s32)ap->rwy[0].len + 300) >> 14);
+                s32 dx = (n->x - lx) >> 8, dy = (n->y - ly) >> 8, d = dx * dx + dy * dy;
                 if (n->type == NAV_ILS && d < best) { best = d; sim.r.nav1 = n->freq; }
             }
         }

@@ -50,14 +50,28 @@ build/hosttest: $(COMUN) src/platform_host.c tests/hosttest.c src/*.h
 build/iberiatest: $(COMUN) src/platform_host.c tests/iberiatest.c src/*.h
 	$(CC) $(CFLAGS) $(COMUN) src/platform_host.c tests/iberiatest.c -o $@
 
-prueba: datos build/hosttest build/iberiatest
+build/figuras: $(COMUN) src/platform_host.c tests/figuras.c src/*.h
+	$(CC) $(CFLAGS) $(COMUN) src/platform_host.c tests/figuras.c -lm -o $@
+
+prueba: datos build/hosttest build/iberiatest build/figuras
 	@mkdir -p build/shots
 	./build/hosttest
 	./build/iberiatest
+	./build/figuras
 
-# cartas aeronauticas del escenario iberico (PDF para el manual)
-cartas: build/iberia.scn tools/cartas.py tools/cartas_a5.py tools/procdesign.py
+# cartas aeronauticas del escenario iberico, en dos pasos:
+#   make -f Makefile.pc cartas-svg   paso 1: genera los PDF en build/cartas y los trocea en un SVG por carta en doc/svg
+#   make -f Makefile.pc cartas-pdf   paso 2: agrupa los SVG en doc/QFS_*.pdf y monta doc/QFS.pdf (manual + A4 + A5 + A3).
+#                                    Si existe doc/svg-manual/<carta>.svg se usa en lugar de doc/svg/<carta>.svg (retoques a mano)
+#   make -f Makefile.pc cartas       los dos pasos (haz antes `libro` para que QFS.pdf lleve el manual)
+cartas-svg: build/iberia.scn tools/cartas.py tools/cartas_a5.py tools/procdesign.py tools/cartas_svg.py
 	$(PY) tools/cartas.py $(ESCALA) build/cartas
+	$(PY) tools/cartas_svg.py build/cartas doc/svg
+
+cartas-pdf:
+	$(PY) tools/cartas_pdf.py doc
+
+cartas: cartas-svg cartas-pdf
 
 # manual de instrucciones A5 (doc/QFS_Manual_A5.pdf): pandoc + XeLaTeX, ver tools/libro.sh
 libro: doc/libro/manual.md tools/libro.sh
@@ -76,4 +90,4 @@ disco: datos
 clean:
 	rm -rf build/hosttest build/iberiatest build/shots build/disco
 
-.PHONY: all datos prueba capturas cartas libro disco clean
+.PHONY: all datos prueba capturas cartas cartas-svg cartas-pdf libro disco clean

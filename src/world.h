@@ -23,6 +23,7 @@
 #define OF_DAYLIGHT 0x08   /* luces visibles tambien de dia */
 #define OF_MOUNTAIN 0x10
 #define OF_SORT     0x20   /* ordenar caras por profundidad (manzanas, montanas) */
+#define OF_PAPI     0x40   /* luces PAPI: 4 caras de 1 luz, blanca o roja segun el angulo de aproximacion (view3d.c) */
 
 #ifndef SOLID_LOD
 #define SOLID_LOD 5        /* alcance de dibujo de los solidos pequenos (edificios, lod < 128) en octavos de su lod: 5/8; 8 = sin recorte */

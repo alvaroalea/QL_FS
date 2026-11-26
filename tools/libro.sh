@@ -26,7 +26,14 @@ $PY tools/dibujos_aviones.py data "$IMG" > build/libro/medidas.txt
 for f in 04_exterior_persecucion; do
   [ -f build/shots/$f.png ] && cp build/shots/$f.png "$IMG/$f.png"
 done
-[ -f build/shots/ib01_madrid_cabecera.png ] && $PY tools/panel_anotado.py build/shots/ib01_madrid_cabecera.png "$IMG/panel_anotado.png"
+# figura 1: menu inicial; figura 2: cabina del bimotor (la mas completa) con los instrumentos numerados (tests/figuras.c)
+for f in fig_menu fig_cabina_bimotor; do
+  [ -f build/shots/$f.scr ] && $PY tools/qlscr2png.py build/shots/$f.scr build/shots/$f.png
+done
+[ -f build/shots/fig_menu.png ] && cp build/shots/fig_menu.png "$IMG/menu.png"
+[ -f build/shots/fig_cabina_bimotor.png ] && $PY tools/panel_anotado.py build/shots/fig_cabina_bimotor.png "$IMG/panel_anotado.png"
+
+$PY tools/teclado_ql.py "$IMG/teclado_ql.pdf" > /dev/null    # hoja A4 apaisada del teclado (tras las listas de comprobacion)
 
 # 2. PDF (la portada Portada.png se busca en doc/)
 TEXINPUTS="$PWD/doc:$PWD/doc/libro:" pandoc doc/libro/manual.md \

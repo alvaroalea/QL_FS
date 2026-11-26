@@ -9,7 +9,7 @@
 
 ## Coste gordo
 - que la tesela del aeropuerto este al nivel del aeropuerto
-- mas luces papi
+- (hecho) luces PAPI en todas las pistas (4 luces, blancas o rojas segun el angulo), barras de umbral completas y numero de pista pintado
 - luces verdes taxi
 - luces strobe en avion
 - Una vista de mapa

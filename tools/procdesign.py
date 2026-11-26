@@ -43,6 +43,61 @@ def chaikin(pts, it=5):
     return pts
 
 
+HOLD_R = 1.5 * NM          # radio de los virajes del hipodromo de espera: ningun viraje de una ruta puede ser mas cerrado
+
+
+def fillet(wps, R=HOLD_R, first_margin=0.4 * NM):
+    """ruta suave: segmentos rectos unidos por arcos de circunferencia de radio R (tangentes a los dos tramos), sin esquinas.
+    Cada vertice interior se sustituye por un arco; si el viraje no cabe (los tramos son mas cortos que las tangentes de los
+    arcos que comparten) o es de ~180 grados, lanza ValueError y la ruta se descarta. El primer arco no empieza antes de
+    first_margin desde el primer punto."""
+    n = len(wps)
+    if n < 3:
+        return list(wps)
+    us = [unit(sub(wps[i + 1], wps[i])) for i in range(n - 1)]
+    lens = [dist(wps[i], wps[i + 1]) for i in range(n - 1)]
+    tans = [0.0] * n
+    ths = [0.0] * n
+    for i in range(1, n - 1):
+        dot = max(-1.0, min(1.0, us[i - 1][0] * us[i][0] + us[i - 1][1] * us[i][1]))
+        th = math.acos(dot)
+        if th > math.radians(165):
+            raise ValueError("viraje imposible")
+        ths[i] = th
+        tans[i] = R * math.tan(th / 2) if th > math.radians(0.3) else 0.0
+    for i in range(n - 1):
+        need = tans[i] + tans[i + 1] + (first_margin if i == 0 and tans[1] > 0 else 0.0)
+        if need > lens[i] + 1e-6:
+            raise ValueError("tramo corto")
+    out = [wps[0]]
+    for i in range(1, n - 1):
+        if tans[i] == 0.0:
+            out.append(wps[i])
+            continue
+        A = sub(wps[i], mul(us[i - 1], tans[i]))
+        left = us[i - 1][0] * us[i][1] - us[i - 1][1] * us[i][0] > 0
+        nrm = (-us[i - 1][1], us[i - 1][0]) if left else (us[i - 1][1], -us[i - 1][0])
+        c = add(A, mul(nrm, R))
+        a0 = math.atan2(A[1] - c[1], A[0] - c[0])
+        k = max(2, int(math.ceil(math.degrees(ths[i]) / 4.0)))
+        for j in range(k + 1):
+            a = a0 + (ths[i] * j / k) * (1 if left else -1)
+            out.append((c[0] + math.cos(a) * R, c[1] + math.sin(a) * R))
+    out.append(wps[-1])
+    return out
+
+
+def min_radius(path):
+    """radio de curvatura minimo de una poligonal densa (circunferencia por tres puntos consecutivos), para comprobar rutas"""
+    best = 1e18
+    for a, b, c in zip(path, path[1:], path[2:]):
+        ab, bc, ca = dist(a, b), dist(b, c), dist(c, a)
+        cr = abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+        if cr > 1e-6 and ab > 1 and bc > 1:
+            best = min(best, ab * bc * ca / (2 * cr))
+    return best
+
+
 def plen(path):
     return sum(dist(a, b) for a, b in zip(path, path[1:]))
 
@@ -77,9 +132,24 @@ def point_at(path, s):
 def ft(m): return m * 3.28084
 
 
+def load_fixes(path):
+    """listado de puntos de notificacion (data/fijos.txt): { icao: {"SID": [(nombre, cardinal, radial, dme)], "IAF": [...]} }.
+    Es la unica fuente de los fijos: todas las SID y las aproximaciones de un aeropuerto usan los mismos puntos."""
+    t = {}
+    for ln in open(path, encoding="utf-8"):
+        ln = ln.split(";")[0].split()
+        if len(ln) < 6:
+            continue
+        icao, name, use, card, radial, dme = ln[:6]
+        t.setdefault(icao, {"SID": [], "IAF": []})[use].append((name, card, float(radial), float(dme)))
+    return t
+
+
 class Designer:
-    def __init__(self, cones, cities, apts, navs):
-        self.cones = cones            # (x, y, r, h_m)
+    def __init__(self, cones, cities, apts, navs, ground=None, fixes=None):
+        self.fixes = fixes                # listado de fijos (load_fixes) o None: se inventan nombres (solo para generar el listado)
+        self.cones = cones            # (x, y, r, h_m): alturas sobre el suelo de su tesela
+        self.ground = ground or (lambda x, y: 0.0)       # elevacion del suelo (m) en un punto
         self.cities = [(n, box(x - w / 2 - 1500, y - d / 2 - 1500, x + w / 2 + 1500, y + d / 2 + 1500))
                        for n, x, y, w, d in cities]
         self.apts = apts
@@ -93,14 +163,14 @@ class Designer:
         for cx, cy, r, ch in (self.cones if cones is None else cones):
             d = math.hypot(p[0] - cx, p[1] - cy)
             if d < r:
-                h = max(h, ch * (1 - d / r))
-        return ft(h)
+                h = max(h, self.ground(cx, cy) + ch * (1 - d / r))       # los conos apoyan en el suelo de su tesela
+        return ft(h)         # (el suelo llano sin montanas no cuenta como obstaculo: 0)
 
     def msa_sectors(self, c, radius=25 * NM):
         """4 sectores (000-090, 090-180, 180-270, 270-360): obstaculo + 1000/2000 ft"""
         res = []
         for s in range(4):
-            h = 0.0
+            h = self.ground(*c)
             for x, y, r, ch in self.cones:
                 # muestreo del cono dentro del sector
                 for k in range(16):
@@ -112,7 +182,7 @@ class Designer:
                             continue
                         b = brg(c, p)
                         if s * 90 <= b < s * 90 + 90 or dd < 1:
-                            h = max(h, ch * (1 - rr / r) if r else ch)
+                            h = max(h, self.ground(x, y) + (ch * (1 - rr / r) if r else ch))
             f = ft(h)
             f += 2000 if f > 5000 else 1000
             res.append(max(2000, int(math.ceil(f / 100.0) * 100)))
@@ -155,7 +225,10 @@ class Designer:
     def best_route(self, wps_list, alt_fn, margin_ft, forbid=None, start_skip=0.0):
         best = None
         for wps in wps_list:
-            path = chaikin(wps)
+            try:
+                path = fillet(wps)
+            except ValueError:
+                continue
             ok, pen, worst = self.check(path, alt_fn, margin_ft, start_skip=start_skip)
             if forbid is not None and LineString(path[:max(2, int(len(path) * 0.82))]).intersects(forbid):
                 continue
@@ -167,11 +240,17 @@ class Designer:
     # --------------------------------------------------------------- aeropuerto
     def design(self, L):
         vid, vfreq, vpos = L["vor"]
-        P = {"vid": vid, "vfreq": vfreq, "vpos": vpos, "icao": L["icao"]}
+        P = {"vid": vid, "vfreq": vfreq, "vpos": vpos, "icao": L["icao"], "elev_ft": ft(L["elev"])}
+        elev_ft = P["elev_ft"]
         P["msa"] = self.msa_sectors(vpos)
         cards = (("N", 0), ("E", 90), ("S", 180), ("W", 270))
-        P["exits"] = [(self.name(), cd, b, polar(vpos, b, 30 * NM)) for cd, b in cards]
-        P["iafs"] = [(self.name(), cd, b, polar(vpos, b, 16 * NM)) for cd, b in cards]
+        if self.fixes is not None:
+            fx = self.fixes[L["icao"]]
+            P["exits"] = [(n, cd, b, polar(vpos, b, d * NM)) for n, cd, b, d in fx["SID"]]
+            P["iafs"] = [(n, cd, b, polar(vpos, b, d * NM)) for n, cd, b, d in fx["IAF"]]
+        else:
+            P["exits"] = [(self.name(), cd, b, polar(vpos, b, 30 * NM)) for cd, b in cards]
+            P["iafs"] = [(self.name(), cd, b, polar(vpos, b, 16 * NM)) for cd, b in cards]
         # cabeceras
         dirs = []
         for rw in L["runways"]:
@@ -189,30 +268,33 @@ class Designer:
         for k, D in enumerate(dirs):
             sids = []
             p0 = D["end"]
-            p1 = add(p0, mul(D["d"], 2.5 * NM))
             for (fname, cd, b0, _), dl in zip(P["exits"], range(4)):
                 cands = []
-                for db in (0, -15, 15, -30, 30):
-                    E = polar(vpos, b0 + db, 30 * NM)
-                    vias = [None]
-                    r = right(D["d"])
-                    for a in (1.5, 4):
-                        for s in (-7, -4, 4, 7):
-                            vias.append(add(p1, add(mul(D["d"], a * NM), mul(r, s * NM))))
-                    mid = mul(add(p1, E), 0.5)
-                    u = unit(sub(E, p1))
-                    for s in (-8, 8):
-                        vias.append(add(mid, mul(right(u), s * NM)))
-                    for v in vias:
-                        cands.append([p0, p1] + ([v] if v else []) + [E])
+                for L1 in (2.5, 4.5, 7.0):         # primer tramo recto en el rumbo de pista (el viraje no cabe si es corto)
+                    p1 = add(p0, mul(D["d"], L1 * NM))
+                    for db in (0,):                    # el fijo de salida es el del listado: no se mueve de una pista a otra
+                        E = polar(vpos, b0 + db, 30 * NM)
+                        vias = [None]
+                        r = right(D["d"])
+                        for a in (1.5, 4, 7):
+                            for s in (-7, -4, 4, 7, -11, 11):
+                                vias.append(add(p1, add(mul(D["d"], a * NM), mul(r, s * NM))))
+                        mid = mul(add(p1, E), 0.5)
+                        u = unit(sub(E, p1))
+                        for s in (-8, 8, -14, 14):
+                            vias.append(add(mid, mul(right(u), s * NM)))
+                        for v in vias:
+                            cands.append([p0, p1] + ([v] if v else []) + [E])
                 grad = 300.0                      # ft/NM (~5 %)
-                alt = lambda s, g=grad: 400 + g * s / NM
+                alt = lambda s, g=grad: elev_ft + 400 + g * s / NM
                 forbid = None
                 best = self.best_route(cands, alt, 1000, start_skip=1 * NM)
-                if not best[2]:
+                if best is None or not best[2]:
                     grad = 450.0                  # ~7.4 %
-                    alt = lambda s, g=grad: 400 + g * s / NM
+                    alt = lambda s, g=grad: elev_ft + 400 + g * s / NM
                     best = self.best_route(cands, alt, 1000, start_skip=1 * NM)
+                if best is None:
+                    raise RuntimeError("SID sin ruta con radio >= %.1f NM: %s %s" % (HOLD_R / NM, P["icao"], fname))
                 path = best[1]
                 E = best[4][-1]
                 exit_alt = max(6000, max(P["msa"]))
@@ -247,7 +329,8 @@ class Designer:
         IF = sub(thr, mul(d, 10 * NM))
         FAF = sub(thr, mul(d, 5 * NM))
         ifa = sub(IF, mul(d, 2.5 * NM))
-        gp = lambda dm: (dm + 300) * math.tan(math.radians(3)) * 3.28084      # ft sobre el umbral
+        elev_ft = P["elev_ft"]
+        gp = lambda dm: elev_ft + (dm + 300) * math.tan(math.radians(3)) * 3.28084      # altitud (ft) de la senda sobre el umbral
         if_alt = int(math.ceil(gp(10 * NM) / 100.0) * 100)
         faf_alt = int(round(gp(5 * NM) / 10.0) * 10)
         final_line = LineString([IF, thr, D["end"]]).buffer(0.6 * NM)
@@ -255,12 +338,14 @@ class Designer:
         r = right(d)
         for fname, cd, b, A in P["iafs"]:
             cands = []
-            for s in (0, -6, 6, -10, 10):
-                for a in (0, 3, 6):
-                    if s == 0 and a:
-                        continue
-                    via = None if s == 0 else add(sub(IF, mul(d, a * NM)), mul(r, s * NM))
-                    cands.append([A] + ([via] if via else []) + [ifa, IF])
+            for back in (2.5, 4.5, 7.0):          # punto de interceptacion antes del IF: el viraje final no puede ser mas cerrado que la espera
+                ifb = sub(IF, mul(d, back * NM))
+                for s in (0, -6, 6, -10, 10, -14, 14):
+                    for a in (0, 3, 6, 9):
+                        if s == 0 and a:
+                            continue
+                        via = None if s == 0 else add(sub(IF, mul(d, a * NM)), mul(r, s * NM))
+                        cands.append([A] + ([via] if via else []) + [ifb, IF])
             best = None
             for alt_try in range(4000, 13100, 500):
                 altf = lambda s, a0=alt_try: a0
@@ -274,39 +359,45 @@ class Designer:
                     continue
                 best = (bb, 13000)
             path = best[0][1]
+            wps = best[0][4]
             arrivals.append(dict(fix=fname, card=cd, A=A, path=path, mnm=best[1], length=plen(path) / NM,
-                                 radial=round(brg(vpos, A))))
+                                 radial=round(brg(vpos, A)), u0=unit(sub(wps[1], wps[0]))))
         # espera en el IAF con la llegada mas corta
         h = min(arrivals, key=lambda a: a["length"])
-        u = unit(sub(h["path"][3], h["path"][0]))
+        u = h["u0"]
         hold = dict(fix=h["fix"], pos=h["A"], course=brg((0, 0), u), alt=max(5000, h["mnm"]), u=u)
         hold["shape"] = self.racetrack(h["A"], u)
         # frustrada: rumbo de pista hasta 2 NM pasado el extremo, curva hacia la espera
         m0 = thr
         m1 = add(D["end"], mul(d, 2.5 * NM))
         cands = []
-        for s in (-5, 5, -8, 8):
-            for a in (2, 5):
-                cands.append([m0, m1, add(add(m1, mul(d, a * NM)), mul(right(d), s * NM)), h["A"]])
-        cands.append([m0, m1, h["A"]])
+        for ext in (2.5, 4.5, 7.0):            # tramo recto tras el extremo de pista antes del viraje
+            m1 = add(D["end"], mul(d, ext * NM))
+            for s in (-5, 5, -8, 8, -12, 12):
+                for a in (2, 5, 8):
+                    cands.append([m0, m1, add(add(m1, mul(d, a * NM)), mul(right(d), s * NM)), h["A"]])
+            cands.append([m0, m1, h["A"]])
         grad = 152.0
-        altf = lambda s, g=grad: 50 + g * s / NM
+        altf = lambda s, g=grad: elev_ft + 50 + g * s / NM
         mb = self.best_route(cands, altf, 500, start_skip=D["len"] + 1 * NM)
-        if not mb[2]:
+        if mb is None or not mb[2]:
             grad = 250.0
-            altf = lambda s, g=grad: 50 + g * s / NM
+            altf = lambda s, g=grad: elev_ft + 50 + g * s / NM
             mb = self.best_route(cands, altf, 500, start_skip=D["len"] + 1 * NM)
-        missed = dict(path=mb[1], grad=grad, ok=mb[2], turn=self.turn_side(d, mb[1]), first_alt=2000)
+        if mb is None:
+            raise RuntimeError("frustrada sin ruta con radio >= %.1f NM: %s %s" % (HOLD_R / NM, P["icao"], D["num"]))
+        missed = dict(path=mb[1], grad=grad, ok=mb[2], turn=self.turn_side(d, mb[1]),
+                      first_alt=max(2000, int(math.ceil((elev_ft + 1500) / 500.0) * 500)))
         # minimos
         t_final = 0.0
         for p, s in samples([FAF, thr], 0.2 * NM):
             for q in (add(p, mul(right(d), NM)), sub(p, mul(right(d), NM)), p):
                 t_final = max(t_final, self.terrain_ft(q))
         if kind == "ILS":
-            och = [max(200, int(t_final + 250)) + k * 10 for k in range(4)]
-            loc_och = [max(400, int(t_final + 350)) + k * 20 for k in range(4)]
+            och = [max(elev_ft + 200, int(t_final + 250)) + k * 10 for k in range(4)]          # altitudes (OCA)
+            loc_och = [max(elev_ft + 400, int(t_final + 350)) + k * 20 for k in range(4)]
         else:
-            och = [max(400, int(t_final + 350)) + k * 20 for k in range(4)]
+            och = [max(elev_ft + 400, int(t_final + 350)) + k * 20 for k in range(4)]
             loc_och = None
         # fijos del perfil con DME (VOR o ILS)
         dme_src = D.get("loc") if kind == "ILS" else vpos

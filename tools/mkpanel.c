@@ -25,8 +25,13 @@ int main(int argc, char **argv)
         panel_build(plat_screen(), &ac);
         strcpy(out, argv[i]);
         strcpy(out + n - 4, ".src");
-        if (!host_dump(out)) { fprintf(stderr, "mkpanel: no se puede escribir %s\n", out); bad = 1; }
-        else printf("%s -> %s (%d bytes)\n", argv[i], out, SCR_BYTES);
+        {
+            FILE *fp = fopen(out, "wb");
+            if (!fp || fwrite(plat_screen() + (long)PANEL_SRC_Y0 * SCR_STRIDE, 1, (size_t)PANEL_SRC_BYTES, fp) != (size_t)PANEL_SRC_BYTES) {
+                fprintf(stderr, "mkpanel: no se puede escribir %s\n", out); bad = 1;
+            } else printf("%s -> %s (%ld bytes)\n", argv[i], out, PANEL_SRC_BYTES);
+            if (fp) fclose(fp);
+        }
     }
     return bad;
 }

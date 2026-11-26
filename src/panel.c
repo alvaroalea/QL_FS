@@ -225,7 +225,7 @@ static int panel_load(u8 *scr, const char *acf)
     src_path(path, acf);
     fp = fopen(path, "rb");
     if (!fp) return 0;
-    ok = fread(scr, 1, SCR_BYTES, fp) == SCR_BYTES;
+    ok = fread(scr + (s32)PANEL_SRC_Y0 * SCR_STRIDE, 1, (size_t)PANEL_SRC_BYTES, fp) == (size_t)PANEL_SRC_BYTES;
     fclose(fp);
     return ok;
 }
@@ -238,21 +238,29 @@ static void gyro_tick_set(int k)                 /* rayitas cortas con la rosa g
     gfx_rect(&S, COL2 - 10, ROW2 - 4, COL2 + 10, ROW2 + 4, fill_tab[F_BLACK]);
 }
 
-static void gyro_build(void)
+/* Las GYN copias se dibujan fuera de la pantalla, en el buffer de la vista 3D (work: VIEW_H filas en RAM alta, sin contencion y
+ * sin que se vea el dibujo): una superficie con la base desplazada para que las filas GY_Y0.. caigan al principio del buffer. */
+static void gyro_build(u8 *work)
 {
     int k, y;
+    Surface keep = S, W;
+    if (!work || !clean || GY_ROWS > VIEW_H) return;
     if (!gyro) gyro = (u8 *)plat_alloc_hi(GY_SZ * GYN);
     if (!gyro) return;
+    gfx_init_surface(&W, work - (s32)GY_Y0 * SCR_STRIDE, GY_Y1 + 1);
+    gfx_clip(&W, 0, GY_Y0, SCR_W - 1, GY_Y1);
+    S = W;                                       /* tick() y gyro_tick_set() pintan en S */
     for (k = 0; k < GYN; k++) {
-        restore(COL2, ROW2);
+        gfx_copy_box(S.base, clean - (s32)PANEL_Y0 * SCR_STRIDE, GY_X0, GY_Y0, COL2 + RX + 2, GY_Y1);
         gyro_tick_set(k);
         for (y = GY_Y0; y <= GY_Y1; y++)
             gfx_memcpy(gyro + k * GY_SZ + (s32)(y - GY_Y0) * GY_N, S.base + (s32)y * SCR_STRIDE + GY_B0, GY_N);
     }
-    restore(COL2, ROW2);
+    S = keep;
+    memset(work, 0, (size_t)VIEW_H * SCR_STRIDE);
 }
 
-void panel_init(u8 *scr, const AircraftDef *ac, const char *acf)
+void panel_init(u8 *scr, const AircraftDef *ac, const char *acf, u8 *work)
 {
     panel_setup(ac);
     gfx_init_surface(&S, scr, SCR_H);
@@ -266,7 +274,7 @@ void panel_init(u8 *scr, const AircraftDef *ac, const char *acf)
     }
     if (!clean) clean = (u8 *)plat_alloc_hi((long)(SCR_H - PANEL_Y0) * SCR_STRIDE);   /* RAM alta: se lee a menudo */
     if (clean) gfx_memcpy(clean, scr + (s32)PANEL_Y0 * SCR_STRIDE, (s32)(SCR_H - PANEL_Y0) * SCR_STRIDE);
-    gyro_build();
+    gyro_build(work);
     panel_reset_state();                 /* nada de lo dinamico esta pintado todavia */
 }
 

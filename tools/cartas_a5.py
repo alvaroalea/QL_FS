@@ -7,7 +7,7 @@ from reportlab.lib.colors import Color, HexColor, white, black
 from shapely.geometry import box
 
 import cartas as C
-from procdesign import (Designer, NM, add, sub, mul, unit, right, polar, brg, dist, point_at, plen)
+from procdesign import (Designer, load_fixes, NM, add, sub, mul, unit, right, polar, brg, dist, point_at, plen)
 
 text, tbox, View = C.text, C.tbox, C.View
 GREY = HexColor("#eeeeee")
@@ -15,7 +15,7 @@ DARK = HexColor("#333333")
 PROC = HexColor("#111111")
 MA_COL = HexColor("#333333")
 REF_TEMP = {"LEMD": 33.5, "LEBL": 28.7, "LEPA": 31.4, "LEIB": 30.5, "LEVC": 30.4, "LEMG": 31.0, "LEZL": 36.0,
-            "LEST": 24.5, "LEAS": 22.9, "LPPT": 29.0, "GCTS": 28.5, "GCFV": 27.6, "GCLP": 27.0}
+            "LEST": 24.5, "LEAS": 22.9, "LPPT": 29.0, "GCTS": 28.5, "GCFV": 27.6, "GCLP": 27.0, "LEBB": 22.0}
 W, H = A5
 M = 6 * mm
 
@@ -50,7 +50,7 @@ def footer(c, code):
 
 def base_freqs(L, P, extra=()):
     f = ["ATIS %.2f" % L["atis"], "TWR/APP %.2f" % L["twr"], "%s %.2f" % (P["vid"], P["vfreq"])]
-    return f + list(extra) + ["ELEV 0 ft"]
+    return f + list(extra) + ["ELEV %d ft" % round(L["elev"] * 3.28084)]
 
 
 # ================================================================ hoja 2 del aerodromo: tablas AD 2
@@ -101,39 +101,45 @@ def card16(b):
     return names[int((b + 11.25) % 360 // 22.5)]
 
 
-def adc_data(c, L, P, code, index):
-    ytop = header(c, L, ("DATOS DEL AERÓDROMO", "AERODROME GEOGRAPHICAL AND ADMINISTRATIVE DATA"), code, "AD 2",
+def adc_data(c, L, P, code, index, second=False):
+    """hoja de datos AD 2. Con mas de 4 cabeceras (3 pistas) no cabe en una hoja: la segunda (second=True) lleva obstaculos y normas"""
+    split = False
+    ytop = header(c, L, ("DATOS DEL AERÓDROMO", "AERODROME GEOGRAPHICAL AND ADMINISTRATIVE DATA"), code, "AD 2" + (" (2)" if second else ""),
                   base_freqs(L, P))
     canary = C.is_canary(L["arp"])
+    k = 1.0
     y = ytop - 4 * mm
+    if second:
+        adc_obstacles(c, L, P, code, index, y)
+        return False
     y = section(c, y, "AD 2.2  DATOS GEOGRÁFICOS Y DE ADMINISTRACIÓN / GEOGRAPHICAL AND ADMINISTRATIVE DATA")
     la, lo = C.dms(L["lat"], "lat"), C.dms(L["lon"], "lon")
     dd, cn, cp = nearest_city(L["arp"])
     rows = [("1", "Coordenadas ARP / ARP coordinates", "%s  %s  (real aprox.)" % (dms_s(L["lat"], "lat"), dms_s(L["lon"], "lon"))),
             ("", "Posición en el simulador / sim position", "X %+.0f m   Y %+.0f m" % L["arp"]),
             ("2", "Dirección y distancia / to city", "%.1f km %s de %s (simulador)" % (dd / 1000, card16(brg(cp, L["arp"])), cn)),
-            ("3", "Elevación / temp. referencia", "0 ft (0 m)  /  %.1f °C" % REF_TEMP.get(L["icao"], 30)),
+            ("3", "Elevación / temp. referencia", "%d ft (%d m)  /  %.1f °C" % (round(L["elev"] * 3.28084), L["elev"], REF_TEMP.get(L["icao"], 30))),
             ("4", "Ondulación geoidal / undulation", "No aplica: mundo plano a cota 0"),
             ("5", "Declinación magnética / MAG VAR", "0° (rumbos verdaderos en todo el simulador)"),
             ("6", "Administración / operator", "QFS Aeropuertos · TWR %.2f" % L["twr"]),
             ("7", "Tipo de tránsito / traffic", "IFR / VFR"),
             ("8", "Horario / hours (AD 2.3)", "H24 · ATS H24 · Combustible AVGAS 100LL y JET A1")]
-    y = table(c, y, (0, 4, 48), rows, 5.0, head=False, lh=3.1)
+    y = table(c, y, (0, 4, 48), rows, 5.0, head=False, lh=3.1 * k)
     y = section(c, y, "AD 2.6  SALVAMENTO Y EXTINCIÓN / RESCUE AND FIREFIGHTING")
     cat = 9 if L["icao"] in ("LEMD", "LEBL", "LEPA", "GCLP", "GCTS") else 7
-    y = table(c, y, (0, 48), [("Categoría OACI / ICAO category", "CAT %d (H24)" % cat)], 5.0, head=False, lh=3.1)
+    y = table(c, y, (0, 48), [("Categoría OACI / ICAO category", "CAT %d (H24)" % cat)], 5.0, head=False, lh=3.1 * k)
     y = section(c, y, "AD 2.12  CARACTERÍSTICAS FÍSICAS DE LAS PISTAS / RUNWAY PHYSICAL CHARACTERISTICS")
     rows = [("RWY", "BRG V", "DIM (m)", "PCN", "THR (coordenadas aprox.)", "THR ELEV", "SLOPE")]
     for D in P["dirs"]:
         tla, tlo = lat_lon(D["thr"][0], D["thr"][1], canary)
         rows.append((D["num"], "%03d°" % D["hdg"], "%d x %d" % (D["len"], D["rw"]["wid"]),
-                     "80/F/B/W/T" if D["len"] > 3000 else "60/F/B/X/T", "%s %s" % (tla, tlo), "0 ft", "0 %"))
-    y = table(c, y, (0, 9, 20, 37, 56, 99, 113), rows, 4.8, lh=3.0)
+                     "80/F/B/W/T" if D["len"] > 3000 else "60/F/B/X/T", "%s %s" % (tla, tlo), "%d ft" % round(L["elev"] * 3.28084), "0 %"))
+    y = table(c, y, (0, 9, 20, 37, 56, 99, 113), rows, 4.8, lh=3.0 * k)
     y = section(c, y, "AD 2.13  DISTANCIAS DECLARADAS / DECLARED DISTANCES  ·  PERFIL / PROFILE")
     rows = [("RWY", "TORA", "TODA", "ASDA", "LDA")]
     for D in P["dirs"]:
         rows.append((D["num"], "%d" % D["len"], "%d" % (D["len"] + 150), "%d" % (D["len"] + 60), "%d" % D["len"]))
-    yt = table(c, y, (0, 9, 21, 33, 45), rows, 4.8, lh=3.0)
+    yt = table(c, y, (0, 9, 21, 33, 45), rows, 4.8, lh=3.0 * k)
     # perfil longitudinal (la pista es horizontal)
     px0, px1 = M + 62 * mm, W - M - 4 * mm
     yy = y - 1 * mm
@@ -144,17 +150,17 @@ def adc_data(c, L, P, code, index):
         c.setLineWidth(0.3)
         c.line(px0, yy - 3 * mm, px0, yy - 1.3 * mm)
         c.line(px1, yy - 3 * mm, px1, yy - 1.3 * mm)
-        text(c, px0, yy - 1 * mm, "THR %s 0 ft" % rw["num"], 4.6)
-        text(c, px1, yy - 1 * mm, "THR %s 0 ft" % rw["rnum"], 4.6, align="r")
+        text(c, px0, yy - 1 * mm, "THR %s %d ft" % (rw["num"], round(L["elev"] * 3.28084)), 4.6)
+        text(c, px1, yy - 1 * mm, "THR %s %d ft" % (rw["rnum"], round(L["elev"] * 3.28084)), 4.6, align="r")
         text(c, (px0 + px1) / 2, yy - 5.3 * mm, "%d m · pendiente 0 %%" % rw["len"], 4.6, align="c")
-        yy -= 7.5 * mm
+        yy -= 7.5 * mm * (0.85 if k < 1 else 1)
     y = min(yt, yy + 1 * mm)
     y = section(c, y, "AD 2.14  LUCES / APPROACH AND RUNWAY LIGHTING")
     rows = [("RWY", "APCH", "THR", "PAPI", "TDZ / RCLL", "REDL", "RENL")]
     for D in P["dirs"]:
-        rows.append((D["num"], "900 m + barra 300 m" if D["ils"] else "NIL", "Verdes / green", "NIL", "NIL",
+        rows.append((D["num"], "900 m + barra 300 m" if D["ils"] else "NIL", "Verdes / green", "PAPI 3.0°", "NIL",
                      "Blancas cada 60 m", "Rojas / red"))
-    y = table(c, y, (0, 9, 35, 56, 66, 82, 106), rows, 4.8, lh=3.0)
+    y = table(c, y, (0, 9, 35, 56, 66, 82, 106), rows, 4.8, lh=3.0 * k)
     y = section(c, y, "AD 2.18 / 2.19  COMUNICACIONES Y RADIOAYUDAS / ATS COMMUNICATIONS AND RADIO NAVIGATION AIDS")
     rows = [("TIPO", "ID", "FREQ", "COORDENADAS (aprox.)", "OBSERVACIONES")]
     rows.append(("ATIS", "-", "%.2f MHz" % L["atis"], "-", "Información en bucle (en inglés)"))
@@ -174,13 +180,39 @@ def adc_data(c, L, P, code, index):
             p = sub(D["thr"], mul(D["d"], 300))
             a, b = lat_lon(p[0], p[1], canary)
             rows.append(("IM " + D["num"], "-", "75 MHz", "%s %s" % (a, b), "300 m al umbral"))
-    y = table(c, y, (0, 17, 25, 39, 79), rows, 4.6, lh=2.9)
+    y = table(c, y, (0, 17, 25, 39, 79), rows, 4.6, lh=2.9 * k)
+    # el cuadro de obstaculos y fijos (y el de normas locales y cartas) pasan a una segunda hoja si ya no caben debajo
+    nobs = len([1 for x, yy_, r, h in C.CONES if dist(P["vpos"], (x, yy_)) < 25 * NM])
+    need = (4.6 + (max(8, min(4, nobs)) + 1) * 2.9 + 0.8 + 4.6 + 3 * 3.2 + 1) * mm
+    if y - need < M + 9 * mm:
+        footer(c, code)
+        c.showPage()
+        return True
+    adc_obstacles(c, L, P, code, index, y)
+    return False
+
+
+def blank_page(c, code):
+    """hoja intencionalmente en blanco (para que las hojas de datos de un aeropuerto sean impares y las cartas siguientes salgan a doble cara)"""
+    c.saveState()
+    c.translate(W / 2, H / 2)
+    c.rotate(math.degrees(math.atan2(H, W)))
+    c.setFillColor(HexColor("#777777"))
+    text(c, 0, 3 * mm, "INTENCIONALMENTE EN BLANCO", 15, "Helvetica-Bold", HexColor("#777777"), "c")
+    text(c, 0, -8 * mm, "INTENTIONALLY BLANK", 12, "Helvetica", HexColor("#777777"), "c")
+    c.restoreState()
+    footer(c, code)
+    c.showPage()
+
+
+def adc_obstacles(c, L, P, code, index, y):
+    k = 1.0
     y = section(c, y, "AD 2.10 / 2.22  OBSTÁCULOS Y PUNTOS DE LOS PROCEDIMIENTOS / OBSTACLES AND PROCEDURE FIXES")
     obs = []
     for x, yy_, r, h in C.CONES:
         dd_ = dist(P["vpos"], (x, yy_))
         if dd_ < 25 * NM:
-            obs.append((h, brg(P["vpos"], (x, yy_)), dd_ / NM))
+            obs.append((h + C.ground_m(x, yy_), brg(P["vpos"], (x, yy_)), dd_ / NM))       # cumbre sobre el nivel del mar
     obs.sort(reverse=True)
     rows = [("OBSTÁCULO (cumbre)", "ELEV", "%s RDL/DME" % P["vid"], "", "FIJO", "USO", "%s RDL/DME" % P["vid"])]
     fixes = [(f, "SID (salida)", b, 30.0) for f, cd, b, pp in P["exits"]] + [(f, "IAF", b, 16.0) for f, cd, b, pp in P["iafs"]]
@@ -192,7 +224,7 @@ def adc_data(c, L, P, code, index):
                      fx_[0] if fx_ else "", fx_[1] if fx_ else "", ("R-%03d / D%.1f" % (fx_[2], fx_[3])) if fx_ else ""))
     if not obs:
         rows.append(("Sin relieve en 25 NM", "", "", "", "", "", ""))
-    y = table(c, y, (0, 24, 36, 58, 62, 78, 98), rows, 4.7, lh=2.9)
+    y = table(c, y, (0, 24, 36, 58, 62, 78, 98), rows, 4.7, lh=2.9 * k)
     y = section(c, y, "AD 2.20 / 2.24  NORMAS LOCALES Y CARTAS / LOCAL REGULATIONS AND CHARTS")
     notes = ["Pedir autorización a TWR (tecla K) antes de despegar y al entrar en el CTR (12 NM, SFC-3000 ft).",
              "Esperas: 205 KT máx., virajes a derechas, tramos de 1 MIN. Velocidad máx. 250 KT bajo FL100.",
@@ -442,7 +474,8 @@ def sid_chart(c, L, P, D, code):
         label_on(c, v, s["path"], 0.62, s["name"], 4.8)
     vor_draw(c, v, P, pl, rose=True)
     q = add(D["end"], mul(D["d"], 1.2 * NM))
-    pl.put(c, *v.pt(*q), ["%03d°" % D["hdg"], "1500"], 4.6)
+    ta = int(math.ceil((P["elev_ft"] + 1500) / 100.0) * 100)          # altitud del primer viraje: 1500 ft sobre el aeropuerto
+    pl.put(c, *v.pt(*q), ["%03d°" % D["hdg"], "%d" % ta], 4.6)
     for s in sids:
         ex, ey = v.pt(*s["E"])
         fix_symbol(c, ex, ey, "tri")
@@ -462,13 +495,50 @@ def sid_chart(c, L, P, D, code):
         text(c, M + 2 * mm, y - 1.6 * mm, s["name"], 6, "Helvetica-Bold")
         text(c, M + 2 * mm, y - 4.6 * mm, "(%s) %d NM" % (s["card"], round(s["length"])), 4.8)
         turn = "sin viraje" if s["turn"] == "recto" else "viraje progresivo a la %s" % s["turn"]
-        l1 = "Rumbo de pista %03d° hasta 1500 ft; %s para interceptar el R-%03d %s" % (D["hdg"], turn, s["radial"], P["vid"])
+        l1 = "Rumbo de pista %03d° hasta %d ft; %s para interceptar el R-%03d %s" % (D["hdg"], ta, turn, s["radial"], P["vid"])
         l2 = "hasta %s (D%.1f %s). Cruzar %s a %d ft o superior." % (s["fix"], s["dme"], P["vid"], s["fix"], s["exit_alt"])
         text(c, M + 21 * mm, y - 1.6 * mm, l1, 4.8)
         text(c, M + 21 * mm, y - 4.2 * mm, l2, 4.8)
         y -= 8.2 * mm
     footer(c, code)
     c.showPage()
+
+
+def loc_arrow(c, v, D, length=9 * NM, width_deg=10.0, hatch=1.3 * mm):
+    """flecha del localizador: cuña con el vertice en el umbral (el borde de la pista) y la base a `length` en el eje de la final, abierta
+    width_deg grados; contorno fino y relleno de lineas finas paralelas al eje"""
+    thr, d = D["thr"], D["d"]
+    r = right(d)
+    tn = math.tan(math.radians(width_deg / 2))
+
+    def P(u, w):
+        return v.pt(thr[0] - d[0] * u + r[0] * w, thr[1] - d[1] * u + r[1] * w)
+    half = length * tn
+    c.saveState()
+    c.setStrokeColor(black)
+    c.setLineWidth(0.35)
+    p = c.beginPath()
+    p.moveTo(*P(0, 0))
+    p.lineTo(*P(length, half))
+    p.lineTo(*P(length, -half))
+    p.close()
+    c.drawPath(p, stroke=1, fill=0)
+    # relleno: lineas paralelas al eje, cada `hatch` en la hoja, dentro de la cuna
+    c.setLineWidth(0.18)
+    n = int((half * v.k * 2) / hatch)
+    for i in range(1, n):
+        w = -half + 2 * half * i / n
+        u0 = abs(w) / tn
+        c.line(*P(u0, w), *P(length, w))
+    # punta de flecha en el umbral
+    q0 = P(0, 0)
+    q1 = P(0.6 * NM, 0.6 * NM * tn * 1.6)
+    q2 = P(0.6 * NM, -0.6 * NM * tn * 1.6)
+    c.setFillColor(black)
+    hp = c.beginPath()
+    hp.moveTo(*q0); hp.lineTo(*q1); hp.lineTo(*q2); hp.close()
+    c.drawPath(hp, stroke=0, fill=1)
+    c.restoreState()
 
 
 # ================================================================ IAC
@@ -524,19 +594,12 @@ def iac_chart(c, L, P, A, code):
     mid = mul(add(A["IF"], D["thr"]), 0.5)
     label_on(c, v, [A["IF"], D["thr"]], 0.25, "%03d°" % D["hdg"], 5.2, off=2.6)
     if ils:
-        # pluma del localizador
-        e = sub(A["IF"], mul(D["d"], 1.5 * NM))
-        pa, pb = v.pt(*A["IF"]), v.pt(*e)
-        ang = math.atan2(pb[1] - pa[1], pb[0] - pa[0])
-        c.setLineWidth(0.4)
-        for sgn in (-1, 1):
-            c.line(pa[0] - math.sin(ang) * 1.6 * sgn, pa[1] + math.cos(ang) * 1.6 * sgn,
-                   pb[0] - math.sin(ang) * 1.6 * sgn, pb[1] + math.cos(ang) * 1.6 * sgn)
-        c.line(pb[0] - math.sin(ang) * 1.6, pb[1] + math.cos(ang) * 1.6, pb[0] + math.sin(ang) * 1.6, pb[1] - math.cos(ang) * 1.6)
+        # rumbo del localizador: flecha rayada que apunta al borde de la pista, con la cola a 9 NM y 10 grados de ancho (5 a cada lado)
+        loc_arrow(c, v, D)
     msa_diagram(c, mx, my, msa_r, P)
     end_plan(c, v)
     profile(c, A, ils, ident, P)
-    minima(c, A, ils)
+    minima(c, A, ils, P)
     footer(c, code)
     c.showPage()
 
@@ -551,12 +614,13 @@ def profile(c, A, ils, ident, P):
     gy = y0 + 2 * mm
     maxd = 11.0
     X = lambda dn: x1 - 14 * mm - dn / maxd * (x1 - x0 - 18 * mm)
-    Y = lambda ftv: gy + ftv / (A["if_alt"] + 600) * (y1 - gy - 4 * mm)
+    el = P["elev_ft"]
+    Y = lambda ftv: gy + (ftv - el) / (A["if_alt"] - el + 600) * (y1 - gy - 4 * mm)        # altitudes: el suelo (umbral) esta a la elevacion del aeropuerto
     c.setLineWidth(0.8)
     c.line(x0, gy, x1, gy)
     c.setFillColor(HexColor("#d9d9d9"))
     c.rect(X(0), gy - 1.2, X(-D["len"] / NM) - X(0), 1.2, fill=1, stroke=0)
-    gpf = lambda dn: (dn * NM + 300) * math.tan(math.radians(3)) * 3.28084
+    gpf = lambda dn: el + (dn * NM + 300) * math.tan(math.radians(3)) * 3.28084
     # nivel de llegada hasta el IF y senda
     c.setStrokeColor(PROC)
     c.setLineWidth(1.0)
@@ -576,7 +640,7 @@ def profile(c, A, ils, ident, P):
         c.line(X(dn), gy, X(dn), Y(alt))
         c.setDash()
         text(c, X(dn), Y(alt) + 2.5, "%d" % round(alt, -1), 5, "Helvetica-Bold", black, "c")
-        text(c, X(dn), Y(alt) + 7.5, "(%d)" % round(alt, -1), 4.2, color=black, align="c")
+        text(c, X(dn), Y(alt) + 7.5, "(%d)" % round(alt - el, -1), 4.2, color=black, align="c")
         if lab:
             text(c, X(dn), gy - 3.2 * mm, lab, 4.8, "Helvetica-Bold", black, "c")
         dme = dist(A["dme_src"], sub(D["thr"], mul(D["d"], dn * NM))) / NM
@@ -592,7 +656,7 @@ def profile(c, A, ils, ident, P):
     c.setDash(2, 1)
     c.line(X(3), Y(och), X(-0.3), Y(och))
     c.setDash()
-    text(c, X(3) - 1, Y(och) - 1.5, ("DA" if ils else "MDA") + " %d" % och, 4.6, "Helvetica-Bold", HexColor("#a00000"), "r")
+    text(c, X(3) - 1, Y(och) - 1.5, ("DA" if ils else "MDA") + " %d (%d)" % (och, och - el), 4.6, "Helvetica-Bold", HexColor("#a00000"), "r")
     # frustrada
     c.setStrokeColor(MA_COL)
     c.setLineWidth(0.7)
@@ -601,7 +665,7 @@ def profile(c, A, ils, ident, P):
     c.line(X(0), Y(och), xe, Y(och) + (xe - X(0)) * 0.6)
     c.setDash()
     c.setFillColor(MA_COL)
-    text(c, xe - 1, Y(och) + (xe - X(0)) * 0.6 + 2, "MA 2000", 4.8, "Helvetica-Bold", MA_COL, "r")
+    text(c, xe - 1, Y(och) + (xe - X(0)) * 0.6 + 2, "MA %d" % A["missed"]["first_alt"], 4.8, "Helvetica-Bold", MA_COL, "r")
     text(c, X(0) + 2, Y(och) + 5, "MAPt" if not ils else "", 4.4, "Helvetica-Bold")
     # distancias al umbral
     for a_, b_ in ((10, 5), (5, 0)):
@@ -612,8 +676,9 @@ def profile(c, A, ils, ident, P):
         text(c, (X(a_) + X(b_)) / 2, yy + 2, "%.1f NM" % (a_ - b_), 4.6, "Helvetica-Bold", black, "c")
 
 
-def minima(c, A, ils):
+def minima(c, A, ils, P):
     D = A["D"]
+    el = P["elev_ft"]
     y = M + 33.5 * mm
     # tabla de minimos
     x0 = M + 2 * mm
@@ -631,11 +696,11 @@ def minima(c, A, ils):
         text(c, x0, y, name, 5)
         if vals:
             for i, v_ in enumerate(vals):
-                text(c, x0 + (24 + i * 12.5) * mm, y, "%d (%d)" % (v_, v_), 5, "Helvetica-Bold", align="c")
+                text(c, x0 + (24 + i * 12.5) * mm, y, "%d (%d)" % (v_, v_ - el), 5, "Helvetica-Bold", align="c")
         else:
             text(c, x0 + 43 * mm, y, "NO AUTORIZADO / NOT AUTH", 5, "Helvetica-Bold", align="c")
     y -= 3.4 * mm
-    text(c, x0, y, "Elevación del umbral 0 ft: OCA = OCH. RVR/VIS según el operador.", 4.4, "Helvetica-Oblique")
+    text(c, x0, y, "Elevación del umbral %d ft: OCA = OCH + %d. RVR/VIS según el operador." % (el, el), 4.4, "Helvetica-Oblique")
     # tabla de regimen de descenso
     tx = M + 78 * mm
     y = M + 33.5 * mm
@@ -660,10 +725,10 @@ def minima(c, A, ils):
     turn = "en línea recta" if Ld["turn"] == "recto" else "viraje progresivo a la %s" % Ld["turn"]
     eng = {"derecha": "right", "izquierda": "left", "recto": "straight"}[Ld["turn"]]
     y = M + 15.6 * mm
-    lines = ["FRUSTRADA: ascender en rumbo de pista %03d° hasta 2000 ft; %s directo a %s ascendiendo a %d ft y esperar." % (
-                 D["hdg"], turn, hold["fix"], hold["alt"]),
-             "MISSED APCH: climb on RWY HDG %03d° to 2000 ft, continuous %s turn direct %s climbing to %d ft and hold." % (
-                 D["hdg"], eng, hold["fix"], hold["alt"]),
+    lines = ["FRUSTRADA: ascender en rumbo de pista %03d° hasta %d ft; %s directo a %s ascendiendo a %d ft y esperar." % (
+                 D["hdg"], Ld["first_alt"], turn, hold["fix"], hold["alt"]),
+             "MISSED APCH: climb on RWY HDG %03d° to %d ft, continuous %s turn direct %s climbing to %d ft and hold." % (
+                 D["hdg"], Ld["first_alt"], eng, hold["fix"], hold["alt"]),
              "Pendiente mínima de frustrada %.1f %%. %s y DME requeridos. Llegadas desde los IAF: radar o propia navegación." % (
                  Ld["grad"] / 60.76, "ILS, VOR" if ils else "VOR"),
              "Distancias en NM del simulador. Altitudes en ft (alturas entre paréntesis)."]
@@ -674,8 +739,9 @@ def minima(c, A, ils):
 # ================================================================ conjunto
 def build(fn):
     from reportlab.pdfgen import canvas
-    des = Designer(C.CONES, C.CITIES, C.APTS, C.NAVS)
-    cv = canvas.Canvas(fn, pagesize=A5)
+    des = Designer(C.CONES, C.CITIES, C.APTS, C.NAVS, ground=C.ground_m, fixes=load_fixes(C.FIXES_FILE))
+    cv = C.Canvas(fn, pagesize=A5)
+    cv.group = "A5"
     cv.setTitle("QFS - Cartas de aeropuerto: ADC, datos AD 2, SID e IAC")
     cv.setAuthor("QFS")
     total = 0
@@ -685,13 +751,25 @@ def build(fn):
         sid_codes = ["AD 2-%s SID %s" % (icao, D["num"]) for D in P["dirs"]]
         iac_codes = ["AD 2-%s IAC %d" % (icao, i + 1) for i in range(len(P["iacs"]))]
         index = "ADC, " + ", ".join("SID RWY %s" % D["num"] for D in P["dirs"]) + ", " + ", ".join(a["name"] for a in P["iacs"])
+        cv.pn = "%s_a5_01_adc1" % icao
         C.aerodrome(cv, L)
-        adc_data(cv, L, P, "AD 2-%s ADC 2" % icao, index)
+        cv.pn = "%s_a5_02_adc2" % icao
+        sheets = 1
+        if adc_data(cv, L, P, "AD 2-%s ADC 2" % icao, index):         # no cabe: segunda hoja de datos (obstaculos y normas)
+            cv.pn = "%s_a5_02_adc2b" % icao
+            adc_data(cv, L, P, "AD 2-%s ADC 3" % icao, index, second=True)
+            sheets = 2
+        if sheets % 2 == 0:                      # hojas de datos pares: una en blanco detras, para que sean impares
+            cv.pn = "%s_a5_02_blank" % icao
+            blank_page(cv, "AD 2-%s" % icao)
+            sheets += 1
         for D, code in zip(P["dirs"], sid_codes):
+            cv.pn = "%s_a5_03_sid_%s" % (icao, D["num"])
             sid_chart(cv, L, P, D, code)
         for A, code in zip(P["iacs"], iac_codes):
+            cv.pn = "%s_a5_04_%s_%s" % (icao, A["kind"].lower(), A["D"]["num"])
             iac_chart(cv, L, P, A, code)
-        total += 2 + len(P["dirs"]) + len(P["iacs"])
+        total += 1 + sheets + len(P["dirs"]) + len(P["iacs"])
         print("  %s: %d SID, %d IAC" % (icao, len(P["dirs"]), len(P["iacs"])))
     cv.save()
     return total

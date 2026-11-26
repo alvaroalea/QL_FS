@@ -22,12 +22,27 @@ sys.argv = _argv
 
 from shapely.geometry import box, Point, LineString
 from reportlab.pdfgen import canvas
+
+
+PAGELOG = []          # (grupo, nombre) de cada pagina en el orden en que se genera: lo lee tools/cartas_svg.py para trocear los PDF
+
+
+class Canvas(canvas.Canvas):
+    """canvas que apunta el nombre de cada pagina (c.group / c.pn, puestos antes de dibujarla) para guardarla como SVG"""
+    group = ""
+    pn = ""
+
+    def showPage(self):
+        PAGELOG.append((self.group, self.pn))
+        canvas.Canvas.showPage(self)
+
 from reportlab.lib.pagesizes import A3, A4, A5, landscape
 from reportlab.lib.units import mm
 from reportlab.lib.colors import Color, HexColor, white, black
 
 NM = 1852.0
 S = I.S
+FIXES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "fijos.txt")      # listado de puntos de notificacion (tools/fijos.py)
 
 # ---------------------------------------------------------------- colores
 C_SEA = HexColor("#cfe5f2")
@@ -85,7 +100,7 @@ MORSE = {'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
 
 # ---------------------------------------------------------------- datos del escenario
 TXT_LINES, LAND = I.build()
-APTS = [I.layout(a) for a in I.AEROPUERTOS]
+APTS = [I.layout(a) for a in sorted(I.AEROPUERTOS, key=lambda a: a[0])]       # cartas por orden alfabetico del codigo OACI
 NAVS = {}           # ident -> (tipo, freq, x, y)
 CONES = []          # (x, y, r, h)
 CITIES = []
@@ -135,24 +150,52 @@ def ft(m):
     return int(round(m * 3.28084))
 
 
+def _load_tiles():
+    """elevacion de cada tesela del escenario compilado (build/iberia.scn): es el suelo que usa el simulador (world_ground)"""
+    import struct
+    fn = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "iberia.scn")
+    try:
+        d = open(fn, "rb").read()
+    except OSError:
+        return None
+    (magic, ver, tlog, ox, oy, ntx, nty, nnav, napt, off_tdir, off_nav, off_apt, elev, vis, name) = \
+        struct.unpack(">4sHHiiHHHHIIIhH24s", d[:64])
+    el = [struct.unpack_from(">h", d, off_tdir + i * 8 + 6)[0] for i in range(ntx * nty)]
+    return dict(ox=ox, oy=oy, ntx=ntx, nty=nty, T=1 << tlog, el=el, base=elev)
+
+
+TILES = _load_tiles()
+
+
+def ground_m(x, y):
+    """elevacion del suelo (m) en un punto: la de su tesela (las teselas de los aeropuertos estan a su altura)"""
+    if not TILES:
+        return 0.0
+    tx = int((x - TILES["ox"]) // TILES["T"])
+    ty = int((y - TILES["oy"]) // TILES["T"])
+    if tx < 0 or ty < 0 or tx >= TILES["ntx"] or ty >= TILES["nty"]:
+        return float(TILES["base"])
+    return float(TILES["el"][ty * TILES["ntx"] + tx])
+
+
 def terrain_at(x, y):
-    """altura del terreno (conos) en un punto"""
+    """altura del terreno (m sobre el nivel del mar): suelo de la tesela + conos de montana (que apoyan en ese suelo)"""
     h = 0
     for cx, cy, r, ch in CONES:
         d = math.hypot(x - cx, y - cy)
         if d < r:
             h = max(h, ch * (1 - d / r))
-    return h
+    return ground_m(x, y) + h
 
 
 def msa(p, radius_nm=25):
     """altitud minima de sector (pies) en 25 NM: obstaculo + 1000 ft (+2000 si > 5000 ft), redondeo a 100"""
     R = radius_nm * NM
-    h = 0
+    h = ground_m(*p)
     for cx, cy, r, ch in CONES:
         d = math.hypot(p[0] - cx, p[1] - cy)
         if d < R + r:
-            h = max(h, ch * max(0.0, 1 - max(0.0, d - R) / r))
+            h = max(h, ground_m(cx, cy) + ch * max(0.0, 1 - max(0.0, d - R) / r))
     f = ft(h)
     f += 2000 if f > 5000 else 1000
     return max(2000, int(math.ceil(f / 100.0) * 100))
@@ -167,7 +210,8 @@ def dms(v, latlon):
 
 
 def is_canary(p):
-    return p[1] < I.P(30.5, -10)[1] and p[0] < I.P(36, -7)[0]
+    # Canarias esta desplazada en el simulador (recuadro): sus y quedan por debajo de las de Marruecos (lat 34)
+    return p[1] < I.P(34.0, -3)[1] - 5000 and p[0] < I.P(36, -7)[0]
 
 
 # ---------------------------------------------------------------- utilidades de dibujo
@@ -431,7 +475,8 @@ def draw_mora_digits(c, x, y, val, color):
 
 def enroute(fn):
     W, H = landscape(A3)
-    c = canvas.Canvas(fn, pagesize=(W, H))
+    c = Canvas(fn, pagesize=(W, H))
+    c.group, c.pn = "A3", "ruta_a3"
     c.setTitle("QFS - Carta de navegación en ruta - Península Ibérica")
     c.setAuthor("QFS")
     m = 8 * mm
@@ -647,7 +692,7 @@ def a5_header(c, W, H, L, title, code):
     items = ["ATIS %.2f" % L["atis"], "TWR %.2f" % L["twr"], "%s %.2f" % (L["vor"][0], L["vor"][1])]
     if rw["ils"]:
         items.append("ILS %s %.2f" % (rw["num"], rw["ils"]))
-    items.append("ELEV 0 ft")
+    items.append("ELEV %d ft" % round(L["elev"] * 3.28084))
     x = m + 2 * mm
     for s in items:
         text(c, x, y + 2.4 * mm, s, 6.5, "Helvetica-Bold")
@@ -675,7 +720,8 @@ def aerodrome(c, L):
     pts.append(L["tower"])
     x0, x1 = min(p[0] for p in pts) - 500, max(p[0] for p in pts) + 500
     y0, y1 = min(p[1] for p in pts) - 500, max(p[1] for p in pts) + 500
-    mapy0 = m + 34 * mm
+    extra = max(0, 2 * (len(L["runways"]) - 2)) * 4.2 * mm        # una fila mas de la tabla de pistas por cada cabecera de mas
+    mapy0 = m + 34 * mm + extra
     v = View(c, m + 2 * mm, mapy0, W - 2 * m - 4 * mm, ytop - mapy0 - 2 * mm, x0, y0, x1, y1)
     c.saveState()
     v.clip()
@@ -784,7 +830,7 @@ def aerodrome(c, L):
     c.restoreState()
     # tabla de pistas
     lat, lon = L["lat"], L["lon"]
-    y = m + 30 * mm
+    y = m + 30 * mm + extra
     text(c, m + 2 * mm, y, "ARP %s %s (posición real aproximada)" % (dms(lat, "lat"), dms(lon, "lon")), 5.8, "Helvetica-Bold")
     y -= 5.5 * mm
     cols = [m + 2 * mm, m + 15 * mm, m + 32 * mm, m + 58 * mm, m + 82 * mm, m + 108 * mm]
@@ -797,7 +843,7 @@ def aerodrome(c, L):
         for num, hd, ils in ((rw["num"], rw["hdg"], rw["ils"]), (rw["rnum"], (rw["hdg"] + 180) % 360, None)):
             y -= 4.2 * mm
             vals = [num, "%03d°" % hd, "%d x %d m" % (rw["len"], rw["wid"]), "%d m" % rw["len"],
-                    ("%.2f" % ils) if ils else "-", "ILS CAT I, PAPI no" if ils else "VOR/DME %s" % L["vor"][0]]
+                    ("%.2f" % ils) if ils else "-", "ILS CAT I, PAPI" if ils else "VOR/DME %s, PAPI" % L["vor"][0]]
             for x, s in zip(cols, vals):
                 text(c, x, y, s, 5.5)
     text(c, m + 2 * mm, m + 3 * mm, "Calles de rodaje: 23 m de anchura. Plataforma 500 x 120 m. Luces de borde, umbral y extremo de pista.",
@@ -1077,7 +1123,7 @@ def star_page(c, L):
 
 
 def airports_a5(fn):
-    c = canvas.Canvas(fn, pagesize=A5)
+    c = Canvas(fn, pagesize=A5)
     c.setTitle("QFS - Cartas de aeropuerto (ADC, SID, STAR/ILS)")
     c.setAuthor("QFS")
     for L in APTS:
@@ -1249,7 +1295,7 @@ def vfr_page(c, L):
                             "antes de entrar en el CTR."]),
         ("RADIOAYUDAS", ["%s  VOR/DME %.2f" % (L["vor"][0], L["vor"][1])] +
          (["ILS %s  %.2f  CRS %03d°" % (rw["num"], rw["ils"], rw["hdg"])] if rw["ils"] else [])),
-        ("AERÓDROMO", ["Elevación 0 ft", "ARP %s" % dms(L["lat"], "lat"), "      %s" % dms(L["lon"], "lon")] +
+        ("AERÓDROMO", ["Elevación %d ft" % round(L["elev"] * 3.28084), "ARP %s" % dms(L["lat"], "lat"), "      %s" % dms(L["lon"], "lon")] +
          ["RWY %s/%s  %d x %d m" % (r["num"], r["rnum"], r["len"], r["wid"]) for r in L["runways"]]),
         ("CIRCUITO DE TRÁNSITO", ["Altitud 1000 ft, virajes a izquierdas", "salvo indicación de TWR.",
                                   "Velocidad máx. 140 KT en el CTR."]),
@@ -1289,10 +1335,11 @@ def vfr_page(c, L):
 
 def vfr_a4(fn):
     W, H = landscape(A4)
-    c = canvas.Canvas(fn, pagesize=(W, H))
+    c = Canvas(fn, pagesize=(W, H))
     c.setTitle("QFS - Cartas de navegación visual (VAC)")
     c.setAuthor("QFS")
     for L in APTS:
+        c.group, c.pn = "A4", "%s_vac_a4" % L["icao"]
         vfr_page(c, L)
     c.save()
 
@@ -1305,8 +1352,8 @@ def check_approaches():
         for i in range(1, 91):
             dm = i * 0.1 * NM
             p = (rw["thr"][0] - rw["d"][0] * dm, rw["thr"][1] - rw["d"][1] * dm)
-            hg = min((dm + 300) * math.tan(math.radians(3)), 3000 / 3.28084)
-            t = terrain_at(*p)
+            hg = min((dm + 300) * math.tan(math.radians(3)), 3000 / 3.28084)       # altura sobre el umbral
+            t = terrain_at(*p) - L["elev"]
             if t > hg - min(150, hg / 2):
                 bad.append((L["icao"], round(dm / NM, 1), round(t), round(hg)))
                 break
@@ -1315,11 +1362,16 @@ def check_approaches():
 
 if __name__ == "__main__":
     os.makedirs(OUTDIR, exist_ok=True)
+    import json
     enroute(os.path.join(OUTDIR, "QFS_Carta_Ruta_A3.pdf"))
     import cartas_a5
     n = cartas_a5.build(os.path.join(OUTDIR, "QFS_Aeropuertos_A5.pdf"))
     print("A5: %d paginas" % n)
     vfr_a4(os.path.join(OUTDIR, "QFS_Cartas_Visuales_A4.pdf"))
     print("cartas en", OUTDIR)
+    a3 = [p for p in PAGELOG if p[0] == "A3"]
+    a4 = [p for p in PAGELOG if p[0] == "A4"]
+    a5 = list(cartas_a5.C.PAGELOG)          # cartas_a5 importa su propia copia del modulo
+    json.dump(a3 + a5 + a4, open(os.path.join(OUTDIR, "paginas.json"), "w"), indent=0)
     for b in check_approaches():
         print("AVISO relieve en final: %s a %.1f NM: terreno %d m, senda %d m" % b)

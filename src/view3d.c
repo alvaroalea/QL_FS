@@ -91,6 +91,13 @@ void xform3(const s16 *m, const s16 *in, s32 *out, int n)
 #endif
 
 /* ------------------------------------------------ cielo y suelo */
+/* a / b truncado hacia cero sin la division de 32 bits de la biblioteca (ql68k.s); aqui la division normal */
+#ifdef USE_ASM_3D
+s32 sdiv32(s32 a, s32 b);
+#else
+#define sdiv32(a, b) ((b) ? (a) / (b) : 0)
+#endif
+
 /* rellena la fila y en tres tramos segun f(x) = A*(x-cx) + B:
  * f > 0 cielo, -K < f <= 0 bruma (suelo mas alla de la visibilidad), f <= -K suelo */
 static void sky_row(Surface *s, int y, s32 A, s32 B, s32 K, Fill fs, Fill fh, Fill fg)
@@ -101,8 +108,8 @@ static void sky_row(Surface *s, int y, s32 A, s32 B, s32 K, Fill fs, Fill fh, Fi
         gfx_hspan(s, y, (int)x0, (int)x1, B > 0 ? fs : (B > -K ? fh : fg));
         return;
     }
-    xa = VIEW_CX + (-K - B) / A;          /* f = -K */
-    xb = VIEW_CX + (0 - B) / A;           /* f = 0  */
+    xa = VIEW_CX + sdiv32(-K - B, A);          /* f = -K */
+    xb = VIEW_CX + sdiv32(-B, A);           /* f = 0  */
     if (A > 0) { lo = fg; hi = fs; }      /* f crece con x: suelo, bruma, cielo */
     else { lo = fs; hi = fg; t = xa; xa = xb; xb = t; }
     if (xa > x0) gfx_hspan(s, y, (int)x0, (int)MIN(xa, x1 + 1) - 1, lo);
@@ -114,7 +121,7 @@ static void sky_row(Surface *s, int y, s32 A, s32 B, s32 K, Fill fs, Fill fh, Fi
 void view_sky(Surface *s, const Camera *c)
 {
     s32 ux = c->m[2] >> 6, uy = c->m[5] >> 6, uz = c->m[8] >> 6;   /* Q8: sin desbordar con zoom x8 */
-    s32 A, B, K, cz = c->z >> 8, h, tq, ff;
+    s32 A, B, dB, K, cz = c->z >> 8, h, tq, ff;
     int y;
     Fill fs, fg, fh;
 
@@ -137,10 +144,10 @@ void view_sky(Surface *s, const Camera *c)
     ff = (s32)c->fx * c->fy;
     K = MIN(tq, 0x7FFFFFFFL / MAX(ff, 1)) * ff;
     A = ux * c->fy;
-    for (y = s->cy0; y <= s->cy1; y++) {
-        B = uy * c->fx * (VIEW_CY - y) + uz * ff;
+    dB = uy * c->fx;                                   /* B baja dB por fila: sin multiplicar de 32 bits en cada una */
+    B = dB * (VIEW_CY - s->cy0) + uz * ff;
+    for (y = s->cy0; y <= s->cy1; y++, B -= dB)
         sky_row(s, y, A, B, K, fs, fh, fg);
-    }
 }
 
 /* ------------------------------------------------ proyeccion */
@@ -411,6 +418,7 @@ static int xform_obj(const Camera *c, const Obj *o, s32 dmax)
     if (!xform_pre(c, o, dmax, res)) return 0;
     U = (int)res[0]; rx = (s16)res[1]; ry = (s16)res[2]; rz = (s16)res[3];
     light_shift = U > LIGHT_U0 ? U - LIGHT_U0 : 0;       /* luces lejanas: 1 de cada 2^light_shift */
+    if (o->flags & OF_PAPI) light_shift = 0;             /* PAPI: son 4 luces sueltas, todas se pintan */
     light_step = 1 << light_shift;
     if (o->type == OBJ_LIGHTS) {
         /* solo se transforman las luces que se van a pintar */
@@ -466,7 +474,7 @@ static void draw_sorted(Surface *s, const Camera *c, const Obj *o)
 static void draw_obj(Surface *s, const Camera *c, const Obj *o)
 {
     const u8 *f = o->f;
-    int i, k, n;
+    int i, k, n, col;
     if (o->type == OBJ_SOLID && (o->flags & OF_SORT)) { draw_sorted(s, c, o); return; }
     for (i = 0; i < o->nf; i++) {
         n = f[0];
@@ -479,6 +487,16 @@ static void draw_obj(Surface *s, const Camera *c, const Obj *o)
         case OBJ_LIGHTS:
             /* las luces se guardan en orden: el vertice j-esimo transformado es
              * el (j*light_step)-esimo del objeto (ver xform_obj) */
+            if (o->flags & OF_PAPI) {
+                /* PAPI: la luz i (0 = la mas cercana a la pista) es blanca si el angulo de elevacion del avion sobre la unidad supera
+                 * 2,5 / 2,83 / 3,17 / 3,5 grados (tangente x 1000: 44, 49, 55, 61) y roja si no: en senda, dos blancas y dos rojas */
+                static const s16 thr[4] = { 44, 49, 55, 61 };
+                s32 dx = (s32)o->ox - (c->x >> 8), dy = (s32)o->oy - (c->y >> 8), dz = (c->z >> 8) - o->oz - 1, dist, tn;
+                dist = isqrt32((u32)(dx * dx + dy * dy)) + 1;
+                tn = dz * 1000 / dist;
+                col = tn > thr[i % 4] ? 3 : 1;           /* i = numero de cara; cada PAPI tiene cuatro */
+                draw_lights(s, vw, f + 2, n, 1, 0, near_z, c->fx, c->fy, col, obj_u == 0);
+            } else
             draw_lights(s, vw, f + 2, n, light_step, light_shift, near_z, c->fx, c->fy, f[1] & 3, obj_u == 0);
             break;
         }

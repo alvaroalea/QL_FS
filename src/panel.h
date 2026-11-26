@@ -17,7 +17,10 @@ typedef struct {
 } PanelInfo;
 
 /* acf: ruta del fichero del avion; el fondo del panel se carga de su gemelo .src (volcado crudo de 32 KB de la pantalla) */
-void panel_init(u8 *screen, const AircraftDef *ac, const char *acf);
+/* el .src guarda solo las filas PANEL_SRC_Y0..255 de la pantalla (las de arriba son de la vista 3D y estan a cero): 20 KB en vez de 32 */
+#define PANEL_SRC_Y0 (PANEL_Y0 - 2)
+#define PANEL_SRC_BYTES ((long)(SCR_H - PANEL_SRC_Y0) * SCR_STRIDE)
+void panel_init(u8 *screen, const AircraftDef *ac, const char *acf, u8 *work);
 #ifdef HOST
 void panel_build(u8 *screen, const AircraftDef *ac);   /* dibuja el fondo estatico (lo usa tools/mkpanel.c para generar los .src) */
 #endif

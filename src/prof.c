@@ -109,6 +109,7 @@ static void rep(int id, long bad, long n)
 {
     PROF_MARK(100 + id); PROF_MARK((int)(bad & 255)); PROF_MARK((int)((bad >> 8) & 255)); PROF_MARK((int)((n >> 8) & 255));
 }
+extern s32 sdiv32(s32 a, s32 b);
 static void asm_test(void)
 {
     long i, bad;
@@ -174,6 +175,46 @@ static void asm_test(void)
         for (k = 0; k < 128L * 40; k++) if (b1[k] != b2[k]) { bad++; b2[k] = b1[k]; }
     }
     rep(4, bad, 300);
+    bad = 0;
+    for (i = 0; i < 1000; i++) {                  /* sdiv32 contra la division de la biblioteca */
+        a = rv(1 + (int)(rr() % 31)); b = rv(1 + (int)(rr() % 31)); if (b == 0) b = 1;
+        if (sdiv32(a, b) != a / b) bad++;
+    }
+    rep(5, bad, 1000);
+    bad = 0;
+    gfx_init_surface(&s1, b1, 40); gfx_clip(&s1, 3, 2, 470, 37);
+    for (i = 0; i < 120; i++) {                   /* gfx_poly32 (recorte y relleno en ensamblador) contra la definicion: pixel claramente dentro = pintado */
+        s32 p[16], cx0 = rv(12) % 700 + 240, cy0 = rv(12) % 150 + 20, rx = 40 + (rr() % 9000), ry = 40 + (rr() % 5000);
+        int n = 3 + (int)(rr() % 5), j, x, y, ok = 1;
+        long area = 0;
+        static const s16 cs[8] = { 16384, 11585, 0, -11585, -16384, -11585, 0, 11585 };   /* seno y coseno en Q14 de 45 grados en 45 */
+        n = 4 + (int)(rr() & 1) * 4;               /* cuadrado u octogono: siempre convexos */
+        for (j = 0; j < n; j++) {
+            int k = j * (8 / n);
+            p[2 * j] = cx0 + (s32)(((long)rx * cs[(k + 2) & 7]) >> 14);
+            p[2 * j + 1] = cy0 + (s32)(((long)ry * cs[k & 7]) >> 14);
+        }
+        area = 0;
+        for (j = 0; j < n; j++) { int j2 = (j + 1) % n; area += (long)p[2 * j] * p[2 * j2 + 1] - (long)p[2 * j2] * p[2 * j + 1]; }
+        memset(b1, 0, sizeof b1);
+        gfx_poly32(&s1, n, p, fill_tab[F_WHITE]);
+        for (y = 2; y <= 37 && ok; y += 5) for (x = 3; x <= 470 && ok; x += 19) {
+            s32 mn = 0x7FFFFFFFL;
+            int set = (b1[y * 128 + (x >> 3) * 2] >> (7 - (x & 7))) & 1;
+            for (j = 0; j < n; j++) {
+                int j2 = (j + 1) % n;
+                s32 ex = p[2 * j2] - p[2 * j], ey = p[2 * j2 + 1] - p[2 * j + 1], len, d;
+                len = isqrt32((u32)(ex * ex + ey * ey)); if (len == 0) continue;
+                d = ((ex * (y - p[2 * j + 1]) - ey * (x - p[2 * j])) / len);
+                if (area < 0) d = -d;
+                if (d < mn) mn = d;
+            }
+            if (mn > 3 && !set) ok = 0;            
+            if (mn < -3 && set) ok = 0;
+        }
+        if (!ok) bad++;
+    }
+    rep(6, bad, 120);
 }
 #endif
 

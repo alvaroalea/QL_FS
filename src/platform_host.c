@@ -22,7 +22,8 @@ void psg_write(int reg, int val) { psg_regs[reg & 15] = val; }
 
 void plat_path(char *out, const char *name)
 {
-    strcpy(out, "data/");
+    int n = (int)strlen(name);
+    strcpy(out, n > 4 && !strcmp(name + n - 4, ".scn") ? "build/" : "data/");      /* los escenarios compilados estan en build/ */
     strcat(out, name);
 }
 

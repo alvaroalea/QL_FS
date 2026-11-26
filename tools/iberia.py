@@ -59,11 +59,11 @@ PENINSULA = [  # peninsula + sur de Francia, sentido antihorario desde Hendaya
     (39.60, -9.07), (39.35, -9.38), (39.00, -9.42), (38.78, -9.50), (38.65, -9.25), (38.48, -9.18),
     (38.40, -8.85), (37.95, -8.87), (37.50, -8.80), (37.02, -8.99), (37.08, -8.65), (37.10, -8.20),
     (37.00, -7.93), (37.15, -7.45), (37.20, -6.95), (36.95, -6.45), (36.75, -6.43), (36.53, -6.30),
-    (36.30, -6.15), (36.00, -5.61), (36.13, -5.43), (36.30, -5.25), (36.50, -4.88), (36.72, -4.42),
+    (36.30, -6.15), (36.00, -5.61), (36.13, -5.43), (36.30, -5.25), (36.50, -4.88), (36.52, -4.74), (36.55, -4.62), (36.52, -4.42), (36.58, -4.30), (36.72, -4.22),
     (36.75, -3.90), (36.72, -3.52), (36.75, -2.95), (36.83, -2.45), (36.72, -2.19), (37.00, -1.90),
     (37.35, -1.65), (37.60, -0.98), (37.63, -0.69), (37.95, -0.73), (38.34, -0.48), (38.55, -0.05),
     (38.73, 0.23), (38.95, 0.05), (39.25, -0.25), (39.45, -0.32), (39.97, 0.02), (40.35, 0.40),
-    (40.72, 0.87), (41.05, 1.20), (41.20, 1.65), (41.38, 2.20), (41.67, 2.79), (41.90, 3.20),
+    (40.72, 0.87), (41.05, 1.20), (41.20, 1.65), (41.17, 1.85), (41.17, 2.05), (41.19, 2.20), (41.27, 2.30), (41.38, 2.28), (41.67, 2.79), (41.90, 3.20),
     (42.10, 3.20), (42.32, 3.32), (42.43, 3.17), (42.70, 3.04), (43.20, 3.20), (43.45, 3.90),
     (43.45, 4.70), (43.30, 5.40), (45.50, 5.40), (45.50, -1.20), (44.60, -1.25), (43.80, -1.40),
     (43.50, -1.55)]
@@ -76,30 +76,42 @@ ISLAS = [
     [(40.05, 3.82), (40.05, 4.10), (39.88, 4.32), (39.82, 4.15), (39.93, 3.85)],   # Menorca
     [(39.10, 1.35), (39.07, 1.60), (38.88, 1.50), (38.84, 1.25), (38.98, 1.20)],   # Ibiza
     [(38.72, 1.38), (38.66, 1.58), (38.65, 1.40)],                         # Formentera
-    [(28.58, -16.13), (28.47, -16.25), (28.30, -16.38), (28.10, -16.50), (28.00, -16.67), (28.10, -16.80),
+    [(28.58, -16.13), (28.47, -16.25), (28.30, -16.38), (28.12, -16.42), (27.98, -16.50), (27.96, -16.67), (28.10, -16.80),
      (28.32, -16.90), (28.38, -16.70), (28.42, -16.45), (28.55, -16.30)],  # Tenerife
     [(28.75, -13.83), (28.50, -13.84), (28.30, -13.90), (28.10, -14.10), (28.05, -14.35), (28.15, -14.50),
      (28.30, -14.10), (28.55, -14.00), (28.72, -13.95)],                   # Fuerteventura
     [(29.22, -13.45), (29.00, -13.42), (28.86, -13.80), (28.98, -13.88), (29.15, -13.62)],  # Lanzarote
 ]
-CIRCULOS = [(27.95, -15.60, 0.21, 0.24), (28.11, -17.22, 0.10, 0.11), (27.74, -18.02, 0.10, 0.12),
+CIRCULOS = [(27.95, -15.56, 0.23, 0.32), (28.11, -17.22, 0.10, 0.11), (27.74, -18.02, 0.10, 0.12),
             (28.67, -17.86, 0.20, 0.12)]   # Gran Canaria, La Gomera, El Hierro, La Palma
 
 # ---------------------------------------------------------------- aeropuertos
 # icao, nombre, lat, lon, ATIS, TWR, VOR (ident, MHz), pistas [(num, rumbo, largo, ancho, ILS, dx, dy)]
+# elevacion de cada aeropuerto (m, aproximada)
+ELEV = {"LEMD": 610, "LEBL": 4, "LEPA": 8, "LEIB": 7, "LEVC": 69, "LEMG": 16, "LEZL": 34, "LEST": 370, "LEAS": 127,
+        "LPPT": 114, "GCTS": 64, "GCFV": 26, "GCLP": 24, "LEBB": 42}
+
+def par(hdg, off):
+    """desplazamiento (dx, dy) de una pista paralela, off metros a la derecha del rumbo (negativo: a la izquierda)"""
+    h = math.radians(hdg)
+    return (round(math.cos(h) * off), round(-math.sin(h) * off))
+
+
 AEROPUERTOS = [
     ("LEMD", "MADRID BARAJAS", 40.472, -3.561, 118.67, 118.15, ("MAD", 116.40),
-     [("32L", 324, 4100, 60, 109.90, 0, 0), ("18R", 181, 3500, 60, None, -2600, 1400)]),
+     [("32L", 324, 4100, 60, 109.90, 0, 0), ("32R", 324, 3500, 60, 111.90) + par(324, 1800),
+      ("18R", 181, 3500, 60, None, -2600, 1400)]),
     ("LEBL", "BARCELONA EL PRAT", 41.297, 2.078, 118.65, 118.10, ("BCN", 116.70),
-     [("25R", 247, 3350, 60, 110.30, 0, 0), ("20", 200, 2500, 45, None, 1200, 1300)]),
+     [("25R", 247, 3350, 60, 110.30, 0, 0), ("25L", 247, 2800, 60, 108.30) + par(247, -1500),
+      ("20", 200, 2500, 45, None, 1200, 1300)]),
     ("LEPA", "PALMA DE MALLORCA", 39.552, 2.739, 119.42, 118.30, ("PMI", 112.20),
-     [("24L", 238, 3270, 45, 109.70, 0, 0)]),
+     [("24L", 238, 3270, 45, 109.70, 0, 0), ("24R", 238, 3000, 45, 108.10) + par(238, 1100)]),
     ("LEIB", "IBIZA", 38.873, 1.373, 127.05, 118.80, ("IBZ", 112.40),
      [("24", 239, 2800, 45, 110.90, 0, 0)]),
     ("LEVC", "VALENCIA", 39.489, -0.482, 125.40, 118.50, ("VLC", 114.60),
      [("12", 124, 3200, 45, 110.50, 0, 0)]),
     ("LEMG", "MALAGA", 36.675, -4.499, 118.37, 118.45, ("MGA", 112.10),
-     [("13", 128, 3200, 45, 109.50, 0, 0)]),
+     [("13L", 128, 3200, 45, 109.50, 0, 0), ("13R", 128, 2800, 45, 111.50) + par(128, 1200)]),
     ("LEZL", "SEVILLA", 37.418, -5.893, 127.27, 118.10, ("SVL", 112.90),
      [("27", 267, 3360, 45, 109.10, 0, 0)]),
     ("LEST", "SANTIAGO", 42.896, -8.415, 120.62, 118.75, ("STG", 116.10),
@@ -113,14 +125,16 @@ AEROPUERTOS = [
     ("GCFV", "FUERTEVENTURA", 28.453, -13.864, 120.05, 118.25, ("FTV", 114.10),
      [("01", 8, 3400, 45, 108.70, 0, 0)]),
     ("GCLP", "GRAN CANARIA", 27.932, -15.387, 118.05, 118.30, ("GDV", 112.50),
-     [("03L", 30, 3100, 45, 111.10, 0, 0)]),
+     [("03L", 30, 3100, 45, 111.10, 0, 0), ("03R", 30, 2900, 45, 111.70) + par(30, 1000)]),
+    ("LEBB", "BILBAO", 43.301, -2.911, 124.65, 118.25, ("BLB", 112.30),
+     [("12", 118, 2600, 45, 108.50, 0, 0)]),
 ]
 
 VORS = [("ZZA", 114.30, 41.66, -1.04), ("VLL", 115.50, 41.71, -4.85), ("TLD", 113.20, 39.97, -4.34),
         ("BJZ", 114.00, 38.89, -6.82), ("ABC", 117.90, 38.95, -1.86), ("PPN", 113.90, 42.77, -1.65),
         ("SLM", 116.80, 40.95, -5.50), ("PRT", 114.50, 41.24, -8.68), ("FAR", 112.80, 37.01, -7.97),
         ("LEN", 117.10, 42.59, -5.65), ("MUR", 116.20, 37.80, -1.13), ("GDX", 113.50, 37.19, -3.78),
-        ("BLB", 112.30, 43.30, -2.91), ("RES", 114.90, 41.15, 1.17), ("MHN", 113.70, 39.86, 4.22),
+        ("RES", 114.90, 41.15, 1.17), ("MHN", 113.70, 39.86, 4.22),
         ("LZR", 115.70, 28.95, -13.60), ("CDB", 117.40, 37.84, -4.85), ("CCS", 115.90, 39.47, -6.37),
         ("TER", 113.00, 40.41, -1.20), ("BRG", 116.90, 42.36, -3.62)]
 NDBS = [("GE", 315, 40.29, -3.72), ("ZMR", 396, 41.51, -5.75), ("HLV", 352, 37.27, -6.95),
@@ -194,12 +208,17 @@ def recip(num):
     return "%02d%s" % ((n + 17) % 36 + 1, side)
 
 
+# enlaces de rodaje a medida: (OACI, calle) -> (esquina de origen, esquina de destino) o None si no hace falta
+TAXI_LINK = {("LEMD", "C"): (("C", 2), ("A", 4)),      # de la esquina de C con C2 a la de A con A4
+             ("LEBL", "C"): None}                       # la pista 20 de Barcelona no necesita enlace propio
+
+
 def layout(ap):
     """geometria completa de un aeropuerto (la usan el escenario y las cartas)"""
     icao, name, lat, lon, atis, twr, vor, rwys = ap
     cx, cy = P(lat, lon)
     h0 = math.radians(rwys[0][1])
-    L = dict(icao=icao, name=name, lat=lat, lon=lon, atis=atis, twr=twr, arp=(cx, cy),
+    L = dict(icao=icao, name=name, lat=lat, lon=lon, atis=atis, twr=twr, arp=(cx, cy), elev=ELEV[icao],
              tower=(cx + math.cos(h0) * 450, cy - math.sin(h0) * 450),
              vor=(vor[0], vor[1], P(lat + 0.012, lon - 0.012)), runways=[], taxiways=[], aprons=[])
     for k, (num, hdg, ln, wd, ils, dx, dy) in enumerate(rwys):
@@ -215,18 +234,34 @@ def layout(ap):
             rw["om"] = (thr[0] - d[0] * 7200, thr[1] - d[1] * 7200)
             rw["mm"] = (thr[0] - d[0] * 1050, thr[1] - d[1] * 1050)
         L["runways"].append(rw)
-        letter, off = "AB"[k], 180
+        if k == 0:                                           # plataforma a la derecha de la primera pista
+            L["aprons"].append(((c[0] + r[0] * 330, c[1] + r[1] * 330), 500, 120, hdg))
+    # calles de rodaje: cada pista tiene su calle paralela (a 180 m, por el lado de la plataforma), cuatro enlaces cortos con la
+    # pista y una calle que la une con la plataforma: se llega desde la plataforma a todas las pistas (cruzando las que haga falta)
+    ac = L["aprons"][0][0]
+    junc = {}                                  # (calle, n) -> esquina entre la calle paralela y el enlace n con la pista
+    for k, rw in enumerate(L["runways"]):
+        letter = "ABC"[k]
+        c, r, d, ln, wd, thr, end = rw["c"], rw["r"], rw["d"], rw["len"], rw["wid"], rw["thr"], rw["end"]
+        side = 1.0 if (ac[0] - c[0]) * r[0] + (ac[1] - c[1]) * r[1] >= 0 else -1.0
+        off = 180 * side
         a0 = (thr[0] + r[0] * off, thr[1] + r[1] * off)
         a1 = (end[0] + r[0] * off, end[1] + r[1] * off)
         L["taxiways"].append((letter, [a0, a1], 23))
         for i, t in enumerate((0.0, 1 / 3, 2 / 3, 1.0)):
             p = (thr[0] + d[0] * t * ln, thr[1] + d[1] * t * ln)
             L["taxiways"].append(("%s%d" % (letter, i + 1),
-                                  [(p[0] + r[0] * wd / 2, p[1] + r[1] * wd / 2), (p[0] + r[0] * off, p[1] + r[1] * off)], 23))
+                                  [(p[0] + r[0] * side * wd / 2, p[1] + r[1] * side * wd / 2), (p[0] + r[0] * off, p[1] + r[1] * off)], 23))
+            junc[(letter, i + 1)] = (p[0] + r[0] * off, p[1] + r[1] * off)
+        mid = (c[0] + r[0] * off, c[1] + r[1] * off)
         if k == 0:
-            ac = (c[0] + r[0] * 330, c[1] + r[1] * 330)
-            L["aprons"].append((ac, 500, 120, hdg))
-            L["taxiways"].append(("%s5" % letter, [(c[0] + r[0] * off, c[1] + r[1] * off), (c[0] + r[0] * 270, c[1] + r[1] * 270)], 23))
+            L["taxiways"].append(("%s5" % letter, [mid, (c[0] + r[0] * 270, c[1] + r[1] * 270)], 23))
+        elif (icao, letter) in TAXI_LINK:                    # enlace a medida (o ninguno)
+            ln_ = TAXI_LINK[(icao, letter)]
+            if ln_:
+                L["taxiways"].append(("%s5" % letter, [junc[ln_[0]], junc[ln_[1]]], 23))
+        else:
+            L["taxiways"].append(("%s5" % letter, [mid, ac], 23))
     return L
 
 
@@ -248,8 +283,8 @@ def build():
         h0 = math.radians(rwys[0][1])
         tx, ty = cx + math.cos(h0) * 450, cy - math.sin(h0) * 450   # torre a 450 m a la derecha de la pista
         ils_txt = "ILS RUNWAY %s APPROACH IN USE. LOCALIZER %.2f." % (rwys[0][0], rwys[0][4]) if rwys[0][4] else ""
-        lines.append('AEROPUERTO %s "%s" %s %s 0 ATIS %.2f TWR %.2f "LANDING AND DEPARTING RUNWAY %s. %s"'
-                     % (icao, name, fmt(tx), fmt(ty), atis, twr, rwys[0][0], ils_txt))
+        lines.append('AEROPUERTO %s "%s" %s %s %d ATIS %.2f TWR %.2f "LANDING AND DEPARTING RUNWAY %s. %s"'
+                     % (icao, name, fmt(tx), fmt(ty), ELEV[icao], atis, twr, rwys[0][0], ils_txt))
         for num, hdg, ln, wd, ils, dx, dy in rwys:
             hx, hy = math.sin(math.radians(hdg)), math.cos(math.radians(hdg))
             rcx, rcy = cx + dx, cy + dy

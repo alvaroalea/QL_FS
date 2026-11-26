@@ -9,7 +9,7 @@ Microsoft Flight Simulator 1.0 (1982). C89 para c68/XTC68 (`qcc`) y ensamblador 
       radios (VOR/ILS/DME/ADF/balizas), ATC, panel, sonido, menú.
 - [x] Banco de pruebas en PC (`make`): física, ILS, ATC y 13 capturas en formato de pantalla QL.
 - [x] Escenario Península Ibérica (`tools/iberia.py` -> `build/iberia.scn`, 451 KB a escala 1:2, 750 KB a 1:1):
-      13 aeropuertos con ILS/VOR/ATIS (Madrid, Barcelona, Palma, Ibiza, Valencia, Málaga, Sevilla, Santiago,
+      14 aeropuertos con ILS/VOR/ATIS (Madrid, Bilbao, Barcelona, Palma, Ibiza, Valencia, Málaga, Sevilla, Santiago,
       Asturias, Lisboa, Tenerife Sur, Fuerteventura, Gran Canaria), 20 VOR y 9 NDB en ruta, 33 ciudades,
       sistemas montañosos, ríos, autovías y mar con SPLASH. Canarias desplazada como en los mapas.
       Datos aproximados de memoria (no para navegación real).
@@ -19,7 +19,8 @@ Microsoft Flight Simulator 1.0 (1982). C89 para c68/XTC68 (`qcc`) y ensamblador 
       carta en ruta A3 apaisado (1 pág.), plano de aeródromo + SID + STAR/ILS en A5 vertical (39 pág.),
       cartas visuales en A4 apaisado (13 pág.). Salen de los mismos datos que el escenario.
 - [x] Escenario: calles de rodaje (A/B + A1..A5) y plataforma en cada aeropuerto; montañas recortadas para
-      no invadir pistas ni 10 NM de aproximación final; designador de Madrid corregido (18R/36L).
+      no invadir pistas ni 10 NM de aproximación final; designador de Madrid corregido (18R/36L); pistas paralelas (Madrid y Barcelona con 3 pistas; Palma, Málaga y Gran Canaria con 2),
+      calles de rodaje desde la plataforma a todas las pistas, números de pista, PAPI y Bilbao.
 - [x] A5 rehechas (`tools/procdesign.py` + `tools/cartas_a5.py`, 99 páginas): por aeropuerto plano de aeródromo,
       hoja de datos AD 2 (ARP, temperatura, pistas, distancias declaradas, perfil, luces, radioayudas,
       obstáculos, fijos, normas), una SID por cabecera con 4 rutas curvas a fijos N/E/S/W a 30 DME, e IAC:
@@ -36,9 +37,9 @@ src/        qfs.h fixmath.c tables.c(gen) gfx.c view3d.c world.c aircraft.c flig
             util.c panel.c sound.c sim.c
             ql68k.s (fxmul, hspan, line, memcpy, xform3)   qdos68k.s (KEYROW, modo 4, reloj 50 Hz)
             platform_ql.c main_ql.c (QL)   platform_host.c (PC)
-tools/      libro.sh dibujos_aviones.py panel_anotado.py gentables.py mkscen.py mkaviones.py qlscr2png.py iberia.py mapa_scn.py cartas.py cartas_a5.py procdesign.py
+tools/      cartas_svg.py cartas_pdf.py teclado_ql.py libro.sh dibujos_aviones.py panel_anotado.py gentables.py mkscen.py mkaviones.py qlscr2png.py iberia.py mapa_scn.py cartas.py cartas_a5.py procdesign.py
 data/       demo.txt, iberia.txt (escenarios fuente)  planeador/mono/bimotor/reactor.acf
-            planeador/mono/bimotor/reactor.src (fondo del panel de cada avion: volcado crudo de 32 KB; lo genera tools/mkpanel.c)
+            planeador/mono/bimotor/reactor.src (fondo del panel de cada avion: volcado crudo de las filas 98 a 255 (20 KB); lo genera tools/mkpanel.c)
 tests/      hosttest.c iberiatest.c
 doc/libro/  manual.md (fuente del libro), metadata.yaml, header.tex, cover.tex, aviso.lua, img/
 Makefile    QL con qcc (por defecto: build/qfs.img y build/qfs.win)
@@ -53,8 +54,11 @@ make SOLO_C=1                # QL sin rutinas gráficas en ensamblador
 make build/qfs               # solo el ejecutable QDOS
 make -f Makefile.pc          # PC: tablas, escenario, aviones, pruebas y capturas PNG
 make -f Makefile.pc ESCALA=1.0   # Iberia a tamaño real (por defecto 0.5)
-make -f Makefile.pc cartas   # PDF en build/cartas (necesita reportlab y shapely:
-                             #   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
+make -f Makefile.pc cartas-svg   # cartas en 2 pasos. Paso 1: PDF en build/cartas y un SVG por carta en doc/svg
+make -f Makefile.pc cartas-pdf   # paso 2: agrupa los SVG en doc/QFS_*.pdf y monta doc/QFS.pdf (manual + A4 + A5 + A3);
+                                 #   si existe doc/svg-manual/<carta>.svg (retoque a mano) se usa en lugar del de doc/svg
+make -f Makefile.pc cartas       # los dos pasos (necesita reportlab, shapely, poppler e inkscape:
+                                 #   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
 make -f Makefile.pc disco    # build/disco: demo_scn, iberia_scn, mono_acf, ...
 make -f Makefile.pc libro    # manual de instrucciones A5: doc/QFS_Manual_A5.pdf (pandoc + XeLaTeX)
 # en el QL: arrancar el .img/.win (boot fija D$ y lanza EXEC_W <unidad>_qfs)

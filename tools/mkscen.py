@@ -25,7 +25,7 @@ FILLS = dict(NEGRO=0, ROJO=1, VERDE=2, BLANCO=3, GRIS=4, AGUA=5, VERDEOSC=6, NAR
 C_BLACK, C_RED, C_GREEN, C_WHITE = 0, 1, 2, 3
 FA_OUTLINE, FA_NOFILL = 0x40, 0x80
 OBJ_GROUND, OBJ_LINES, OBJ_SOLID, OBJ_LIGHTS = 0, 1, 2, 3
-OF_HIT, OF_WATER, OF_NIGHT, OF_DAYLIGHT, OF_MOUNTAIN, OF_SORT = 1, 2, 4, 8, 16, 32
+OF_HIT, OF_WATER, OF_NIGHT, OF_DAYLIGHT, OF_MOUNTAIN, OF_SORT, OF_PAPI = 1, 2, 4, 8, 16, 32, 64
 NAV_VOR, NAV_VORDME, NAV_NDB, NAV_ILS, NAV_OM, NAV_MM, NAV_IM, NAV_GS = 1, 2, 3, 4, 5, 6, 7, 8
 
 
@@ -70,6 +70,7 @@ class Scen:
     def __init__(s):
         s.name, s.tlog, s.elev = "ESCENARIO", 14, 0
         s.objs, s.navs, s.apts = [], [], {}
+        s.numbers = []          # numeros de pista pendientes (la letra L/R solo se pinta si hay dos pistas con el mismo numero)
         s.vis = 0
         s.apt_order = []
 
@@ -101,6 +102,96 @@ class Scen:
             o.face(color, idx)
             s.objs.append(o)
 
+    TAXI_STEP = 40.0     # separacion de las luces de eje de calle de rodaje (m)
+
+    def taxi_lights(s, pts):
+        """luces verdes de eje a lo largo de una calle de rodaje (solo se ven de noche/crepusculo); se omiten las que caen sobre una pista"""
+        rw = s.apts[s.apt_order[-1]]["rwy"] if s.apt_order else []
+        out = []
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            L = math.hypot(x1 - x0, y1 - y0)
+            n = max(1, int(L // s.TAXI_STEP))
+            for i in range(n + (1 if (x1, y1) == pts[-1] else 0)):
+                x, y = x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n
+                on = False
+                for hdg, ln, wd, rx, ry in rw:
+                    hx, hy = math.sin(math.radians(hdg)), math.cos(math.radians(hdg))
+                    along, across = (x - rx) * hx + (y - ry) * hy, (x - rx) * hy - (y - ry) * hx
+                    if -5 < along < ln + 5 and abs(across) < wd / 2 + 5:
+                        on = True
+                        break
+                if not on:
+                    out.append((x, y, 0.3))
+        if out:
+            s.lights(out, C_GREEN, lod=16)
+
+    SEG = {"0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc", "5": "afgcd", "6": "afgedc", "7": "abc",
+           "8": "abcdefg", "9": "abcdfg", "L": "efd", "R": "abefg", "C": "afed"}
+
+    @staticmethod
+    def opposite(num):
+        """numero de la cabecera contraria: 32L -> 14R"""
+        d = int("".join(ch for ch in num if ch.isdigit()))
+        suf = "".join(ch for ch in num if not ch.isdigit()).upper()
+        n = (d + 18 - 1) % 36 + 1
+        suf = {"L": "R", "R": "L"}.get(suf, suf)
+        return "%02d%s" % (n, suf)
+
+    def paint_numbers(s):
+        """pinta los numeros de pista pendientes: el numero en una linea y, solo si el aeropuerto tiene dos pistas con ese numero
+        (paralelas: 32L/32R), la letra L/R en otra, entre las barras de umbral y el numero"""
+        cnt = {}
+        for apt, el, name, *_ in s.numbers:
+            k = (apt, "".join(ch for ch in name if ch.isdigit()))
+            cnt[k] = cnt.get(k, 0) + 1
+        for apt, el, name, ex, ey, hx, hy, px, py in s.numbers:
+            digits = "".join(ch for ch in name if ch.isdigit())
+            letter = "".join(ch for ch in name if not ch.isdigit()).upper() if cnt[(apt, digits)] > 1 else ""
+            W, H, GAP = 7.0, 20.0, 3.5
+            v = 46.0                                       # tras las barras de umbral (6 a 36 m)
+            if letter:
+                s.paint_text(el, letter, ex, ey, hx, hy, px, py, v)
+                v += H + 8.0
+            s.paint_text(el, digits, ex, ey, hx, hy, px, py, v)
+
+    def paint_text(s, el, text, ex, ey, hx, hy, px, py, v0):
+        """texto de segmentos (7 segmentos), de pie para quien aterriza, centrado en el eje, empezando v0 m despues de la cabecera"""
+        W, H, S, GAP = 7.0, 20.0, 2.2, 3.5
+        total = len(text) * W + (len(text) - 1) * GAP
+        o = Obj(OBJ_GROUND, ex + hx * (v0 + H / 2), ey + hy * (v0 + H / 2), el, 0, lod=12)
+        o.absz = True
+
+        def pt(u, v):
+            return o.vert(ex + px * (u - total / 2) + hx * (v0 + v), ey + py * (u - total / 2) + hy * (v0 + v))
+
+        def quad(u0, u1, w0, w1):
+            o.face(attr(FILLS["BLANCO"]), [pt(u0, w0), pt(u1, w0), pt(u1, w1), pt(u0, w1)])
+        m = H / 2
+        for i, ch in enumerate(text):
+            u = i * (W + GAP)
+            for sg in s.SEG.get(ch, ""):
+                if sg == "a": quad(u, u + W, H - S, H)
+                elif sg == "d": quad(u, u + W, 0, S)
+                elif sg == "g": quad(u, u + W, m - S / 2, m + S / 2)
+                elif sg == "f": quad(u, u + S, m, H)
+                elif sg == "e": quad(u, u + S, 0, m)
+                elif sg == "b": quad(u + W - S, u + W, m, H)
+                elif sg == "c": quad(u + W - S, u + W, 0, m)
+            if ch == "R":                                     # pata diagonal de la R
+                o.face(attr(FILLS["BLANCO"]), [pt(u + W / 2 - S, m), pt(u + W / 2, m), pt(u + W, 0), pt(u + W - S, 0)])
+        s.objs.append(o)
+
+    def papi(s, el, ex, ey, hx, hy, px, py, wd):
+        """4 luces PAPI para quien aterriza por esta cabecera: a 300 m de ella, a la izquierda de la pista, la mas cercana a la pista
+        primero. El color (blanco/rojo) se decide en cada cuadro segun el angulo de aproximacion (OF_PAPI, view3d.c)."""
+        o = Obj(OBJ_LIGHTS, ex + hx * 300 - px * (wd / 2 + 20), ey + hy * 300 - py * (wd / 2 + 20), el + 1, OF_PAPI | OF_DAYLIGHT, 110)
+        o.absz = True
+        for k in range(4):
+            d = wd / 2 + 15 + k * 9
+            i = o.vert(ex + hx * 300 - px * d, ey + hy * 300 - py * d, 0.0)
+            o.face(C_WHITE, [i])
+        s.objs.append(o)
+
     def runway(s, apt, num, x, y, hdg, ln, wd, ils=None, luces=False):
         a = s.apts[apt]
         el = a["elev"]
@@ -108,22 +199,27 @@ class Scen:
         px, py = hy, -hx            # perpendicular (derecha)
         cx, cy = x + hx * ln / 2, y + hy * ln / 2
         o = Obj(OBJ_GROUND, cx, cy, el, OF_NIGHT * 0, lod=70)
+        o.absz = True       # ya a la altura del aeropuerto: write() no la desplaza
         c = [(x - px * wd / 2, y - py * wd / 2), (x + px * wd / 2, y + py * wd / 2),
              (x + px * wd / 2 + hx * ln, y + py * wd / 2 + hy * ln), (x - px * wd / 2 + hx * ln, y - py * wd / 2 + hy * ln)]
         o.face(attr(FILLS["NEGRO"]), [o.vert(px_, py_) for px_, py_ in c])
         s.objs.append(o)
         # marcas: eje discontinuo y barras de umbral (ambas cabeceras)
-        m = Obj(OBJ_GROUND, cx, cy, el, 0, lod=25)
+        # eje discontinuo: de 150 m a 150 m del final (despues de los numeros), en trozos de 20 rayas (80 vertices) para cubrir toda la pista
         L = 30.0
-        t = 80.0
-        while t < ln - 110:
-            a0, a1 = t, t + L
-            q = [(x + hx * a0 - px * 0.6, y + hy * a0 - py * 0.6), (x + hx * a0 + px * 0.6, y + hy * a0 + py * 0.6),
-                 (x + hx * a1 + px * 0.6, y + hy * a1 + py * 0.6), (x + hx * a1 - px * 0.6, y + hy * a1 - py * 0.6)]
-            m.face(attr(FILLS["BLANCO"]), [m.vert(*p) for p in q])
-            t += 2 * L
-            if len(m.v) > 80:
-                break
+        t = 150.0
+        while t + L <= ln - 150:
+            m = Obj(OBJ_GROUND, x + hx * t, y + hy * t, el, 0, lod=8)      # raya de menos de un pixel a mas de ~2,5 km: no se carga antes
+            m.absz = True
+            while t + L <= ln - 150 and len(m.v) < 80:
+                a0, a1 = t, t + L
+                q = [(x + hx * a0 - px * 0.6, y + hy * a0 - py * 0.6), (x + hx * a0 + px * 0.6, y + hy * a0 + py * 0.6),
+                     (x + hx * a1 + px * 0.6, y + hy * a1 + py * 0.6), (x + hx * a1 - px * 0.6, y + hy * a1 - py * 0.6)]
+                m.face(attr(FILLS["BLANCO"]), [m.vert(*p) for p in q])
+                t += 2 * L
+            s.objs.append(m)
+        th = Obj(OBJ_GROUND, cx, cy, el, 0, lod=10)      # barras de umbral aparte
+        th.absz = True
         for end in (0, 1):
             for k in (-3, -2, -1, 1, 2, 3):
                 off = k * wd / 8.0
@@ -132,9 +228,14 @@ class Scen:
                      (x + hx * a0 + px * (off + 1), y + hy * a0 + py * (off + 1)),
                      (x + hx * a1 + px * (off + 1), y + hy * a1 + py * (off + 1)),
                      (x + hx * a1 + px * (off - 1), y + hy * a1 + py * (off - 1))]
-                if len(m.v) <= 92:
-                    m.face(attr(FILLS["BLANCO"]), [m.vert(*p) for p in q])
-        s.objs.append(m)
+                th.face(attr(FILLS["BLANCO"]), [th.vert(*p) for p in q])
+        s.objs.append(th)
+        # numero de pista, grande, a la entrada de cada cabecera (legible desde la aproximacion) y luces PAPI a su izquierda
+        opp = s.opposite(num)
+        for (ex, ey, e_hx, e_hy, name) in ((x, y, hx, hy, num), (x + hx * ln, y + hy * ln, -hx, -hy, opp)):
+            e_px, e_py = e_hy, -e_hx
+            s.numbers.append((apt, el, name, ex, ey, e_hx, e_hy, e_px, e_py))
+            s.papi(el, ex, ey, e_hx, e_hy, e_px, e_py, wd)
         # cabeceras para el ATC
         a["rwy"].append((hdg, ln, wd, x, y))
         a["rwy"].append(((hdg + 180) % 360, ln, wd, x + hx * ln, y + hy * ln))
@@ -249,6 +350,7 @@ class Scen:
                     o.face(attr(FILLS["GRISOSC"]), [o.vert(x0 + nx, y0 + ny), o.vert(x0 - nx, y0 - ny),
                                                      o.vert(x1 - nx, y1 - ny), o.vert(x1 + nx, y1 + ny)])
                 s.objs.append(o)
+                s.taxi_lights(pts)
             elif cmd == "PLATAFORMA":
                 # PLATAFORMA x y largo fondo rumbo : plataforma de estacionamiento
                 x, y, L, D, r = f(0), f(1), f(2), f(3), math.radians(f(4))
@@ -321,6 +423,7 @@ class Scen:
 
     # ---------------------------------------------------------------- binario
     def write(s, out):
+        s.paint_numbers()
         T = 1 << s.tlog
         xs = [o.ox for o in s.objs] + [a["x"] for a in s.apts.values()]
         ys = [o.oy for o in s.objs] + [a["y"] for a in s.apts.values()]
@@ -328,6 +431,37 @@ class Scen:
         oy = int(math.floor(min(ys) / T)) * T - T
         ntx = int((max(xs) - ox) // T) + 2
         nty = int((max(ys) - oy) // T) + 2
+        # la tesela de cada aeropuerto (y las de los extremos de sus pistas) toma la altura del aeropuerto. Las teselas de alrededor suben
+        # con ella y se mantienen a su altura hasta 2,5 teselas y bajan hasta 0 a 6,5: si no, las montanas (y campos, rios...) quedarian cientos de metros por debajo de la
+        # pista y, con el pintor, se verian por encima de ella. El suelo de cada tesela (world_ground) vale su elevacion y todo lo que se
+        # colgo de la elevacion base (edificios, luces, campos, montanas) sube con ella. Una tesela con agua no se levanta.
+        apt_tiles = {}
+        for a in s.apts.values():
+            pts = [(a["x"], a["y"])] + [(rx, ry) for (h, ln, wd, rx, ry) in a["rwy"]]
+            for px_, py_ in pts:
+                apt_tiles.setdefault((int((px_ - ox) // T), int((py_ - oy) // T)), a["elev"])
+        water = set((int((o.ox - ox) // T), int((o.oy - oy) // T)) for o in s.objs if o.flags & OF_WATER)
+        FULL, FALL = 2.5, 6.5        # teselas a la altura del aeropuerto hasta FULL teselas, y de ahi bajando hasta 0 en FALL
+
+        def elev_of(k):
+            if k in apt_tiles:
+                return apt_tiles[k]
+            if k in water:
+                return s.elev
+            best = s.elev
+            for (ax, ay), e in apt_tiles.items():
+                d = math.hypot(k[0] - ax, k[1] - ay)
+                if d < FALL:
+                    best = max(best, s.elev + (e - s.elev) * min(1.0, (FALL - d) / (FALL - FULL)))
+            return int(round(best))
+        tile_elev = {}
+        for tx in range(ntx):
+            for ty in range(nty):
+                tile_elev[(tx, ty)] = elev_of((tx, ty))
+        for o in s.objs:
+            e = tile_elev.get((int((o.ox - ox) // T), int((o.oy - oy) // T)))
+            if e is not None and not getattr(o, "absz", False):
+                o.oz += e - s.elev
         tiles = {}
         for o in s.objs:
             k = (int((o.ox - ox) // T), int((o.oy - oy) // T))
@@ -372,14 +506,14 @@ class Scen:
         for (tx, ty), objs in sorted(tiles.items()):
             blob = struct.pack(">H", len(objs)) + b"".join(o.pack() for o in objs)
             assert len(blob) < 65536
-            struct.pack_into(">IHh", tdir, (ty * ntx + tx) * 8, off_blob + len(blobs), len(blob), s.elev)
+            struct.pack_into(">IHh", tdir, (ty * ntx + tx) * 8, off_blob + len(blobs), len(blob), tile_elev.get((tx, ty), s.elev))
             blobs += blob
             if len(blobs) & 1:
                 blobs += b"\0"
         for ty in range(nty):
             for tx in range(ntx):
                 if (tx, ty) not in tiles:
-                    struct.pack_into(">IHh", tdir, (ty * ntx + tx) * 8, 0, 0, s.elev)
+                    struct.pack_into(">IHh", tdir, (ty * ntx + tx) * 8, 0, 0, tile_elev.get((tx, ty), s.elev))
         hdr = struct.pack(">4sHHiiHHHHIIIhH24s", b"QFS1", 1, s.tlog, ox, oy, ntx, nty, len(s.navs),
                           len(s.apt_order), off_tdir, off_nav, off_apt, s.elev, s.vis, s.name.upper().encode()[:24].ljust(24))
         hdr = hdr.ljust(64, b"\0")

@@ -229,7 +229,7 @@ SPEED 1, volcado estacionario de 2 cuadros = una vista) con la **imagen del QL i
 | **Física**: `fxmul` con vía corta de dos `MULU` cuando un operando cabe en 16 bits (constantes < 1,0, razones...) | `ql68k.s` |
 
 Para comprobar el ensamblador sin mirar imágenes: `make prof ESCENA=1 PROFFLAGS="-DASM_TEST" NDUMPS=0` (src/prof.c, `asm_test`) compara
-`lerp_div`, `proj_pt`, `fxmul`, `gfx_hspan` y `gfx_line` con referencias en C sobre valores aleatorios y deja los errores en marcas
+`lerp_div`, `proj_pt`, `fxmul`, `gfx_hspan`, `gfx_line` y `sdiv32` con referencias en C sobre valores aleatorios y deja los errores en marcas
 `100 + n` (0 = sin discrepancias).
 
 ### Resultado (ciclos del 68008 por vista, SPEED 1)
@@ -243,6 +243,8 @@ Para comprobar el ensamblador sin mirar imágenes: `make prof ESCENA=1 PROFFLAGS
 La noche gana más porque las luces eran todo C. Escena 1 por etapas, ahora (s por vista): proyección (`pj_xy` + `pj_div` + `proj_all`)
 0,063; `xform_obj3` 0,057; `poly_fast` 0,046; relleno (`fc_hspan` + `gfx_fill_convex` + `gfx_hspan`) 0,114 (incluye las filas del cielo);
 recorte (`clip_edge` + `gfx_poly32`) 0,017 (antes 0,037).
+
+**Cielo** (después de la tabla): `view_sky` calcula `B` de forma incremental (una resta por fila en vez de dos productos de 32 bits) y `sky_row` divide con `sdiv32` (ensamblador: dos `DIVU` si |divisor| < 65536; antes la división de 32 bits de la biblioteca, dos por fila). Escena 1: 6,35 → 6,08 M (−4 %), escena 3: 6,95 → 6,68 M (−4 %); imagen idéntica byte a byte; `sdiv32` comprobada en `asm_test` (marca 105).
 
 **Lo que no se movió**: `xform_obj3` sigue en ~1.400 ciclos por vértice aunque se quitaron los desplazamientos largos. Cada vértice
 son 9 `MULS` + 18 lecturas de la matriz + 9 sumas y 6 desplazamientos: ~50 instrucciones a 25-30 ciclos con el bus de 8 bits. Solo

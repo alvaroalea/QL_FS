@@ -1,6 +1,6 @@
 # Primeros pasos {#cap-inicio}
 
-Alea's Flight Simulator (QFS) es un simulador de vuelo para el Sinclair QL. Pone cuatro aviones a tu disposición (un planeador, un monomotor, un bimotor y un reactor ejecutivo) y dos escenarios: un pequeño valle de pruebas y la Península Ibérica con sus trece aeropuertos principales, radioayudas, ciudades y montañas.
+Alea's Flight Simulator (QFS) es un simulador de vuelo para el Sinclair QL. Pone cuatro aviones a tu disposición (un planeador, un monomotor, un bimotor y un reactor ejecutivo) y dos escenarios: un pequeño valle de pruebas y la Península Ibérica con sus catorce aeropuertos principales, radioayudas, ciudades y montañas.
 
 Este capítulo explica lo mínimo para ponerlo en marcha. Los siguientes cuentan los menús, los aviones y cómo se vuela; al final del libro, en el anexo, tienes las listas de comprobación de cada avión.
 
@@ -115,33 +115,34 @@ La hora de salida (y la que luego avanza durante el vuelo) cambia el aspecto del
 |:-------------|:-------------------|
 | 07:00 – 18:59 | Día |
 | 06:00 – 06:59 y 19:00 – 20:59 | Atardecer o amanecer |
-| 21:00 – 05:59 | Noche (se encienden las luces de pistas y ciudades) |
+| 21:00 – 05:59 | Noche (se encienden las luces de pistas y ciudades, y las luces verdes de eje de las calles de rodaje) |
 
 ## Los escenarios
 
-**Península Ibérica.** Trece aeropuertos con torre, ATIS e ILS, además de unos veinte VOR/DME en ruta, nueve NDB, treinta y tres ciudades, ríos, autovías y las cadenas montañosas principales (Pirineos, Cantábrica, Sistema Central, Béticas, Canarias...). Se empieza en la cabecera de Madrid-Barajas.
+**Península Ibérica.** Catorce aeropuertos con torre, ATIS e ILS, además de unos veinte VOR/DME en ruta, nueve NDB, treinta y tres ciudades, ríos, autovías y las cadenas montañosas principales (Pirineos, Cantábrica, Sistema Central, Béticas, Canarias...). Se empieza en la cabecera de Madrid-Barajas.
 
 ::: {.aviso}
-Las distancias del escenario están a escala 1:2, así que los vuelos duran la mitad. Los datos de coordenadas, rumbos y frecuencias son aproximados y están hechos para jugar: **no sirven para navegar de verdad**. El mundo es plano y está a cota cero: Madrid está a 0 m, no a 610 m.
+Las distancias del escenario están a escala 1:2, así que los vuelos duran la mitad. Los datos de coordenadas, rumbos y frecuencias son aproximados y están hechos para jugar: **no sirven para navegar de verdad**. El terreno es plano por teselas de 16 km: cada aeropuerto está a su altitud (Madrid, 610 m) y esa altitud se mantiene unos 40 km alrededor y baja hasta cero hacia fuera.
 :::
 
-| OACI | Aeropuerto | Pista | Long. (m) | ATIS | Torre | ILS |
+| OACI | Aeropuerto | Pistas | Elev. (m) | ATIS | Torre | ILS (pista principal) |
 |:--|:--------------|:--|--:|:--|:--|:--|
-| LEMD | Madrid Barajas | 32L | 4100 | 118.67 | 118.15 | 109.90 |
-| LEBL | Barcelona El Prat | 25R | 3350 | 118.65 | 118.10 | 110.30 |
-| LEPA | Palma de Mallorca | 24L | 3270 | 119.42 | 118.30 | 109.70 |
-| LEIB | Ibiza | 24 | 2800 | 127.05 | 118.80 | 110.90 |
-| LEVC | Valencia | 12 | 3200 | 125.40 | 118.50 | 110.50 |
-| LEMG | Málaga | 13 | 3200 | 118.37 | 118.45 | 109.50 |
-| LEZL | Sevilla | 27 | 3360 | 127.27 | 118.10 | 109.10 |
-| LEST | Santiago | 17 | 3200 | 120.62 | 118.75 | 110.70 |
-| LEAS | Asturias | 29 | 2200 | 118.97 | 118.15 | 109.30 |
-| LPPT | Lisboa | 03 | 3800 | 124.15 | 118.10 | 110.10 |
-| GCTS | Tenerife Sur | 07 | 3200 | 118.37 | 119.00 | 108.90 |
-| GCFV | Fuerteventura | 01 | 3400 | 120.05 | 118.25 | 108.70 |
-| GCLP | Gran Canaria | 03L | 3100 | 118.05 | 118.30 | 111.10 |
+| LEMD | Madrid Barajas | 32L / 32R | 610 | 118.67 | 118.15 | 109.90 (32R: 111.90) |
+| LEBL | Barcelona El Prat | 25R / 25L | 4 | 118.65 | 118.10 | 110.30 (25L: 108.30) |
+| LEPA | Palma de Mallorca | 24L / 24R | 8 | 119.42 | 118.30 | 109.70 (24R: 108.10) |
+| LEIB | Ibiza | 24 | 7 | 127.05 | 118.80 | 110.90 |
+| LEVC | Valencia | 12 | 69 | 125.40 | 118.50 | 110.50 |
+| LEMG | Málaga | 13L / 13R | 16 | 118.37 | 118.45 | 109.50 (13R: 111.50) |
+| LEZL | Sevilla | 27 | 34 | 127.27 | 118.10 | 109.10 |
+| LEST | Santiago | 17 | 370 | 120.62 | 118.75 | 110.70 |
+| LEAS | Asturias | 29 | 127 | 118.97 | 118.15 | 109.30 |
+| LPPT | Lisboa | 03 | 114 | 124.15 | 118.10 | 110.10 |
+| GCTS | Tenerife Sur | 07 | 64 | 118.37 | 119.00 | 108.90 |
+| GCFV | Fuerteventura | 01 | 26 | 120.05 | 118.25 | 108.70 |
+| GCLP | Gran Canaria | 03L / 03R | 24 | 118.05 | 118.30 | 111.10 (03R: 111.70) |
+| LEBB | Bilbao | 12 | 42 | 124.65 | 118.25 | 108.50 |
 
-Los aeropuertos tienen una pista principal con ILS (la de la tabla) y, en algunos, pistas adicionales sin ILS. Cada uno tiene también su VOR/DME propio.
+Madrid, Barcelona, Palma, Málaga y Gran Canaria tienen dos pistas paralelas, cada una con su ILS (en el número de pista se pinta la letra L o R). Cada aeropuerto tiene también su VOR/DME propio, PAPI en todas las cabeceras, y el número de pista pintado en el suelo.
 
 **Valle del QL (demo).** Un escenario pequeño de tres aeropuertos para probar: «QL Norte» (con ILS en la pista 31), «QL Sur» y el «Aeródromo del Lago» (sin ATIS, torre en 122.80). Es muy ligero y carga al instante.
 
@@ -149,7 +150,7 @@ Los aeropuertos tienen una pista principal con ILS (la de la tabla) y, en alguno
 
 Al pulsar ENTER se pasa a la cabina. La pantalla se divide en la vista exterior (arriba) y el panel (abajo).
 
-![Pantalla de vuelo con los elementos numerados.](img/panel_anotado.png){width=100%}
+![Pantalla de vuelo del bimotor con los elementos numerados.](img/panel_anotado.png){width=100%}
 
 | N.º | Elemento | Qué muestra |
 |:--|:-----------|:---------------------------------------------------------|
@@ -838,3 +839,9 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 | □ | Pérdida (`PERDIDA!`) | **↑**, gas a fondo, alas niveladas |
 | □ | Exceso de velocidad | Gas a ralentí, sube el morro (VNE 330 kt) |
 | □ | Frustrada | **F4**, 10°, flaps 15°, tren arriba |
+
+\clearpage
+
+```{=latex}
+\includepdf[pages=1,fitpaper=true]{img/teclado_ql.pdf}
+```

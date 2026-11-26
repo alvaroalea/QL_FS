@@ -261,7 +261,7 @@ int sim_init(const char *scn, const char *acf, int hour)
     sim.start_pt = sim_start_pt;
     sim_reset();
     if (sim_restore) { sim_restore = 0; snap_restore(); }
-    panel_init(sim.scr, &sim.ac, acf);
+    panel_init(sim.scr, &sim.ac, acf, backbuf);   /* backbuf sirve de borrador para precalcular la rosa */
     snd_init();
     sim.tick_phys = plat_ticks();
     return 0;
