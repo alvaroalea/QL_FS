@@ -4,6 +4,9 @@
 
 # Alea's Flight Simulator (QFS)
 
+[![English](https://img.shields.io/badge/Language-English-blue)](README.en.md)
+[![Español](https://img.shields.io/badge/Language-Español-red)](README.md)
+
 Simulador de vuelo para el **Sinclair QL** (68008 a 7,5 MHz), inspirado en el *Microsoft Flight Simulator 1.0* de 1982:
 cabina con instrumentos, vista exterior en 3D y la **Península Ibérica completa** para recorrerla con cuatro aviones.
 Escrito en C89 para c68/XTC68 (`qcc`), con ensamblador 68000 en las partes críticas, y funciona tanto en un QL con
