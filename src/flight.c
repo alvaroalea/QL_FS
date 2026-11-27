@@ -46,7 +46,7 @@ void flight_place(Flight *f, s32 x_m, s32 y_m, s32 z_m, u16 hdg_bam, s32 v_ms, i
     f->x = x_m << 8; f->y = y_m << 8; f->z = z_m << 8;
     f->psi = fxdiv((s32)hdg_bam, RAD2BAM);
     f->v = v_ms << 16;
-    f->gam = 0; f->q = 0; f->p = 0; f->phi = 0;
+    f->gam = 0; f->q = 0; f->p = 0; f->phi = 0; f->inv = 0;
     f->on_ground = on_ground;
     f->alf = on_ground ? f->ac->pitch_gnd : 3 * FX_DEG;
     f->the = f->alf;
@@ -239,20 +239,29 @@ void flight_step(Flight *f, World *w)
     f->v += fxmul(dv, PHYS_DT);
     if (f->v < 0) f->v = 0;
     f->gam += fxmul(dg, PHYS_DT);
-    f->gam = CLAMP(f->gam, -FX_HALFPI + FX_DEG, FX_HALFPI - FX_DEG);
+    /* al pasar por la vertical (looping) se refleja la trayectoria: gam -> pi - gam, con rumbo y alabeo girados 180 grados (vuelo
+     * invertido, inv alterna); asi gam se queda en +-90 y nunca se atasca. alf (incidencia respecto al avion) no cambia. */
+    if (f->gam > FX_HALFPI || f->gam < -FX_HALFPI) {
+        s32 alf0 = f->alf;
+        f->gam = (f->gam > 0 ? FX_PI : -FX_PI) - f->gam;
+        f->inv ^= 1;
+        f->psi += FX_PI;
+        f->phi += FX_PI;
+        f->the = f->inv ? f->gam - alf0 : f->gam + alf0;
+    }
     f->psi += fxmul(dpsi, PHYS_DT);
     if (f->psi < 0) f->psi += FX_2PI;
     if (f->psi >= FX_2PI) f->psi -= FX_2PI;
     f->phi += fxmul(f->p, PHYS_DT);
     if (f->phi > FX_PI) f->phi -= FX_2PI;
     if (f->phi < -FX_PI) f->phi += FX_2PI;
-    f->the += fxmul(f->q, PHYS_DT);
+    f->the += f->inv ? -fxmul(f->q, PHYS_DT) : fxmul(f->q, PHYS_DT);
     if (f->on_ground) {
         if (f->the < a->pitch_gnd) { f->the = a->pitch_gnd; if (f->q < 0) f->q = 0; }
         if (f->the > a->pitch_gnd + 14 * FX_DEG) { f->the = a->pitch_gnd + 14 * FX_DEG; f->q = 0; }
         f->gam = 0;
     }
-    f->alf = f->the - f->gam;
+    f->alf = f->inv ? f->gam - f->the : f->the - f->gam;
     f->turn = dpsi;
 
     /* posicion */
@@ -279,7 +288,7 @@ void flight_step(Flight *f, World *w)
             else if (f->vs < -FXF(35, 10) || ABS(f->phi) > 12 * FX_DEG || f->the < -4 * FX_DEG)
                 f->crash = CRASH_GROUND;
             f->on_ground = 1;
-            f->vs = 0; f->gam = 0; f->phi = 0; f->p = 0;
+            f->vs = 0; f->gam = 0; f->phi = 0; f->p = 0; f->inv = 0;
         }
     }
     /* colision con objetos: solo cuando el avion puede haber llegado a alguno. world_hit devuelve en hit_near la distancia

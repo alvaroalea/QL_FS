@@ -19,6 +19,9 @@ función que lo llamó. Hace falta el sQLux con el parche de perfil (el de `../Q
   parada, para compararla byte a byte con la del PC (`tmp/shot.c`): así se comprobó que el ensamblador nuevo pinta
   **exactamente** lo mismo que la versión en C.
 
+> **Estado actual (27 nov 2026):** las cifras de las secciones intermedias son históricas, de cuando se midieron. Las vigentes,
+> la lista de pendientes ordenada y las conclusiones están en la última sección, «Reevaluación y perfil del simulador actual».
+
 ## Qué se encontró
 
 El cuello de botella **no era el panel**, sino el pintado 3D: un fotograma costaba ~104 M de ciclos (14 s) en la
@@ -43,7 +46,7 @@ de uno en uno. El panel sumaba un ~2 %.
 | Indicador de FPS (tecla `\`) abajo a la izquierda | `sim.c`, `panel.c` |
 | Buffer 3D y copia limpia del panel en RAM de expansión (≥ $40000, sin contención) con `plat_alloc_hi` | `platform_ql.c`, `sim.c`, `panel.c` |
 
-## Resultado (SPEED 1, ciclos del 68008 por fotograma estacionario)
+## Resultado (SPEED 1, ciclos del 68008 por fotograma estacionario) — histórico, de esa primera ronda
 
 | Escena | Antes | Ahora, vista entera | Ahora, vista en 2 cuadros (A + B) |
 | --- | ---: | ---: | ---: |
@@ -69,7 +72,7 @@ panel y simulación se atienden al doble de ritmo** (`3D 0.6  SIM 1.2` en el ind
 más (cada cuadro repite el coste fijo de panel, teclado y 2 pasos de física, ~0,2 s). Sin limitar la física a 2 pasos por
 cuadro salía un 30-40 % peor.
 
-## Lo que queda (por orden de rentabilidad estimada)
+## Lo que queda (por orden de rentabilidad estimada) — histórico; la lista vigente está en la última sección
 
 1. **Normales por cara** (el truco de Elite): descartar las caras traseras con un producto escalar antes de proyectar y
    proyectar solo los vértices que usa alguna cara visible. Aquí es más fácil que en Elite porque los edificios y
@@ -87,9 +90,8 @@ cuadro salía un 30-40 % peor.
 3. (hecho) Rasterizador de polígonos en ensamblador: −8 a −11 % del fotograma; lo que queda en C (recorte `clip_edge`, no convexos) es ~2 %.
 4. `view_world` (reunir y ordenar objetos, ~11 %): ordenar índices, no estructuras.
 5. (hecho) Lectura de teclado parcial. Con cuadros de ~1,5 s una pulsación corta puede caerse entre dos lecturas: mantener la tecla.
-6. La física cuesta ~35 ms por paso (`flight_step` y `world_hit`): a 25 Hz necesitaría más de un segundo de CPU por segundo, así que
-   la simulación va muy por debajo del tiempo real; abaratar `world_hit` o bajar la frecuencia de la física. Menos detalle de
-   terreno (más `lod` en `iberia.py`).
+6. (superado) La física costaba ~35 ms por paso. Tras `world_hit` espaciado, `fxdiv`/`fxmul` en ensamblador y motores cada 4 pasos
+   ya no es el cuello de botella: ~8 % en vuelo y solo ~2 % si se para (ver la última sección).
 
 ## Reunión de objetos y colisiones (escena 1, SPEED 1, volcado estacionario)
 
@@ -171,7 +173,7 @@ en las escenas 0, 1, 3 y 4; un volcado son 25 cuadros = 12,5 vistas.
 
 ### Conclusiones
 
-1. **La física cuesta ~230 ms por vista (23 %)**: con `-DPROF_PAUSE=1` la vista baja de 1.006 a 774 ms. Son ~58 ms (~435 k ciclos)
+1. **(medida de la ronda anterior; hoy ~2-8 %) La física cuesta ~230 ms por vista (23 %)**: con `-DPROF_PAUSE=1` la vista baja de 1.006 a 774 ms. Son ~58 ms (~435 k ciclos)
    por paso y hay 4 pasos por vista (2 por cuadro). Cada paso hace ~79 `fxmul` y ~14 `fxdiv`. A 25 Hz haría falta más de 1 s de
    CPU por segundo. Es lo mayor que no es render.
 2. **La escena es pequeña y cada elemento es carísimo** (instrucciones, no bus). Por vista, escena 1 (contado en el host con
@@ -307,3 +309,72 @@ Medido en la escena 1 (módulo `flight.c`, SPEED 1, por 25 cuadros): **1,09 s �
   vez (antes 4 `fxdiv`), constantes como productos, índice de `world_ground` con `MULS16`, segunda lectura de suelo redundante eliminada,
   contador en vez de `nsteps % 12` (`sim.c`), punteros en vez de `nav[i]` en `nav.c`.
 * La dinámica sale igual salvo redondeos (±0,5 % en las pruebas de `hosttest`).
+
+## Reevaluación y perfil del simulador actual (27 noviembre 2026)
+
+Perfil con `make prof` (SPEED 1, volcado estacionario = 25 cuadros = 12,5 vistas de 2 cuadros). Estado: renderizado en
+ensamblador, vista en dos cuadros, física a 2 pasos por cuadro, luces verdes de eje en las calles de rodaje (nuevas).
+
+| Escena | s por volcado | ms por vista | FPS de vista | Antes (ronda de ensamblador) |
+| --- | ---: | ---: | ---: | ---: |
+| 0 cabina en cabecera (Madrid, día) | 18,17 | 1.454 | 0,69 | ~1.290 |
+| 1 final a 5 km sobre Madrid | 7,80 | 624 | 1,60 | 850 |
+| 3 final nocturno | 11,61 | 929 | 1,08 | 930 |
+| 4 reactor, 12 km | 10,24 | 819 | 1,22 | 840 |
+| 1 con la física parada (`PROF_PAUSE=1`) | 7,67 | 614 | 1,63 | — |
+
+* Los dos primeros volcados de cada escena son más lentos (carga de teselas: escena 1, 11,4 s y 10,1 s frente a 7,8 s).
+* **Luces de rodaje**: A/B con el mismo escenario sin ellas: escena 3 11,36 s → 11,61 s (**+2 %**), escena 0 sin cambio (de día no
+  se dibujan; solo se reúnen los 127 objetos más).
+
+### Reparto (% del volcado)
+
+| Etapa | Esc. 0 (día, suelo) | Esc. 1 | Esc. 3 (noche) | Esc. 4 |
+| --- | ---: | ---: | ---: | ---: |
+| Transformar y proyectar (`xform_obj3`, `xform_pre`, `xform_obj`, `pj_xy`, `pj_div`, `proj_all`) | **27** | 16 | **38** | 11 |
+| Luces (`draw_lights`, `dl_plot`) | — | 1 | **13** | 1 |
+| Descarte/recorte de polígonos (`poly_fast`, `clip_*`, `gfx_poly32`, `draw_sorted`, `paint_face`) | 18 | 11 | 3 | 8 |
+| Relleno (`fc_hspan`, `gfx_fill_convex`, `gfx_hspan`) | 13 | 8 | 5 | 18 |
+| Reunir/ordenar (`gather_tile`, `view_world_begin`, `tile_get`, `world_tiles_near`, `dist_m`) | 9 | 11 | 9 | 7 |
+| ROM/QDOS (teclado por IPC) | 7 | 7 | 7 | 7 |
+| Cielo (`view_sky`, `sky_row`) | 2 | 5 | 3 | 4 |
+| Volcado a pantalla (`gfx_memcpy`) | 2 | 5 | 3 | 3 |
+| Líneas (`gfx_line_raw`, `draw_seg`) | 4 | 7 | 1 | 7 |
+| Física (`flight_step`, `fxmul`, `isqrt32`, `nav`) | ~3 | ~8 | ~7 | ~8 |
+
+### Conclusiones
+
+1. **Lo que domina es el número de vértices**, no el relleno. En la escena 0 (cabina en el aeropuerto), `xform_obj3` es el 10,6 %
+   y `poly_fast` el 8,9 %: ~800 vértices transformados por vista a ~1.400 ciclos cada uno. De noche son los vértices de las luces
+   (unos 3.400 en alcance): transformar + proyectar + dibujar luces suman **~51 % del volcado**.
+2. **Física: ya no es el objetivo.** Sumando `flight_step` + `fxmul` + `isqrt32` salen ~8 % en vuelo (el `fxmul` y el `isqrt32` también
+   los usa el render); parando la física solo se gana el 1,7 % (7,80 → 7,67 s). Todo lo que se haga ahí rinde < 3 %.
+3. **Teclado (ROM/QDOS), 7 %, y volcado, 2-5 %** son un suelo fijo por vista; el volcado es entero aunque solo cambie parte.
+4. **Normales por cara**: sigue sin compensar (2-8 %, y el suelo no tiene caras traseras).
+5. El escenario de cabecera es el peor (0,69 FPS de vista): marcas de pista (objetos de 80 vértices cada 600 m, `lod` 8), calles y
+   plataformas son suelo plano que se transforma entero aunque cada trozo cubra pocos píxeles.
+
+### Qué optimizar, por orden de rentabilidad
+
+| # | Propuesta | Escenas | Ganancia estimada |
+| --- | --- | --- | ---: |
+| 1 | **Filas de luces como primitiva**: guardar extremos + paso y proyectar solo los extremos, interpolando en pantalla el recíproco (1/z) de cada luz; así las luces de borde de pista, eje de calle y aproximación pasan de 1 vértice a ~0 por luz | 3 (noche) | −25 a −35 % |
+| 2 | Afinar el recorte de luces por distancia (`LIGHT_U0` > 0, tope de luces por vista, calles solo a < 2 km) | 3 | −5 a −15 % |
+| 3 | Menos vértices de marcas y suelo cerca de aeropuertos: eje discontinuo en objetos de `lod` menor o como líneas, fusionar calles contiguas en un solo objeto | 0, 1 | −8 a −15 % |
+| 4 | Reunir/ordenar solo cuando la cámara se ha movido (reutilizar `items[]` entre vistas) | todas | −5 a −8 % |
+| 5 | Teclado: una fila IPC por cuadro cuando no hay pulsaciones | todas | −3 a −5 % |
+| 6 | Volcado solo de las filas modificadas (ventana por bandas) | 1, 3, 4 | −2 a −3 % |
+| 7 | Normales por cara | 0 | −2 a −8 % (más coste de datos) |
+| 8 | Física a 2 pasos por vista | todas | −2 a −3 % (cambia la dinámica) |
+
+Con 1 + 2 + 3 + 4 se esperan ~0,5 s por vista en la escena 3 y ~1,1 s en la 0: bastante lejos del objetivo de 10 FPS. Para
+llegar ahí sigue haciendo falta un presupuesto duro de contenido (vértices y caras por vista) y, probablemente, una ventana menor.
+
+### Cambios posteriores que afectan al rendimiento o a las medidas
+
+* **Looping** (`flight.c`): al pasar de ±90° la trayectoria se refleja (`gam → π − gam`, rumbo y alabeo +180°, indicador `inv`) en vez de
+  quedarse limitada a ±89°, que dejaba al avión parado en la vertical. Añade una comparación por paso; no se nota en el perfil.
+* **Luces verdes de eje de calle** (`mkscen.py`, `taxi_lights`): una luz cada 40 m, `lod` 16 (~4 km), omitidas sobre las pistas.
+  +17 KB y +127 objetos en el escenario de prueba; +2 % de coste de noche, 0 % de día.
+* **Pendiente de medir tras la propuesta 1** (filas de luces): repetir `make prof ESCENA=3`; las luces de calle, de borde de pista y de
+  aproximación son las que más se beneficiarían, porque van en línea recta con paso constante.

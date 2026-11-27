@@ -43,6 +43,7 @@ typedef struct {
     s32 agl;                    /* m Q16 sobre el suelo */
     s32 wind_e, wind_n;         /* viento m/s Q16 (hacia donde sopla) */
     s32 accx, accy, accz;       /* restos de integracion (Q16 m) para no perder precision */
+    int inv;                    /* 1 = trayectoria reflejada tras pasar la vertical (looping): the = gam - alf */
     int on_ground, stalled, stall_warn, crash;
     int hit_wait;                  /* pasos de fisica sin comprobar colision con objetos (el avion no puede alcanzar ninguno antes) */
     u32 hit_gen;                   /* generacion de teselas de la ultima comprobacion */
