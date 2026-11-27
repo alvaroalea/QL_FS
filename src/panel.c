@@ -833,7 +833,7 @@ static void hdg_num(int hd)                              /* rumbo en el centro (
 }
 
 /* (Probado: componer la rosa en RAM alta y volcarla de una vez no ayuda, 20,7 ms contra 17 ms: la copia de entrada y de salida cuesta
- * lo que se ahorra en las letras; ver doc/horizonte_rosa.md) */
+ * lo que se ahorra en las letras; ver doc/optimizacion.md, «Horizonte artificial y rosa») */
 static void hdg_paint(int hd)
 {
     hdg_base(hd); hdg_ticks(hd); hdg_labels(hd); hdg_num(hd);
@@ -1072,18 +1072,19 @@ static void draw_msgs(const Atc *a, const PanelInfo *pi)
     }
 }
 
-/* indicador de FPS en la esquina inferior izquierda (filas 249-255, bajo la linea de estado): vistas 3D y simulacion por segundo */
+/* indicador de FPS en la esquina inferior izquierda (filas 249-255, bajo la linea de estado): vistas 3D, simulacion y vueltas del panel por segundo */
 static void draw_fps(const PanelInfo *pi)
 {
-    char b[24], t[10];
-    int key = pi->fps10 * 7 + pi->lps10;
+    char b[32], t[10];
+    int key = (pi->fps10 * 7 + pi->lps10) * 11 + pi->pps10;
     if (key == s_fps) return;
     s_fps = key;
-    gfx_rect(&S, 4, 249, 4 + 6 * 18, 255, fill_tab[F_BLACK]);
+    gfx_rect(&S, 4, 249, 4 + 6 * 28, 255, fill_tab[F_BLACK]);
     if (pi->fps10 == -2) return;
     if (pi->fps10 < 0) { gfx_text(&S, 4, 249, "FPS ...", C_GREEN); return; }
-    u_cpy(b, "3D ", 24); u_dec1(t, pi->fps10, 4); u_cat(b, t, 24);
-    u_cat(b, "  SIM ", 24); u_dec1(t, pi->lps10, 4); u_cat(b, t, 24);
+    u_cpy(b, "3D ", 32); u_dec1(t, pi->fps10, 4); u_cat(b, t, 32);
+    u_cat(b, "  SIM ", 32); u_dec1(t, pi->lps10, 4); u_cat(b, t, 32);
+    u_cat(b, "  PAN ", 32); u_dec1(t, pi->pps10, 4); u_cat(b, t, 32);
     gfx_text(&S, 4, 249, b, C_GREEN);
 }
 
@@ -1129,8 +1130,10 @@ void panel_all(u8 *scr, const Flight *f, const Radios *r, const Atc *a, const Pa
 #ifndef AI_BAND
 #define AI_BAND 6
 #endif
-static int pj_u, pj_y;
+static int pj_u, pj_y, pj_hd;
 
+/* Orden de las unidades: 0 altitud (la mayor, 10 ms: va la primera para que quepa en el turno Q que empieza la vuelta), 1-3 horizonte, 4 velocidad, 5 variometro,
+ * 6-8 rumbo (en tres: fondo y rayitas 5,7 ms, numeros 7,7 ms, rumbo central 1,5 ms), 9 viraje, 10 rpm, 11 CDI, 12 radios, 13 motor, 14 mensajes y FPS. */
 int panel_job_step(u8 *scr, const Flight *f, const Radios *r, const Atc *a, const PanelInfo *pi, u32 tick0)
 {
     int qb, qh;
@@ -1138,30 +1141,40 @@ int panel_job_step(u8 *scr, const Flight *f, const Radios *r, const Atc *a, cons
     S.base = scr;
     for (;;) {
         switch (pj_u) {
-        case 0:                                   /* horizonte: solo si cambia el alabeo (grados) o el cabeceo (pixeles) */
+        case 0: draw_alt(f); pj_u = 1; break;
+        case 1:                                   /* horizonte: solo si cambia el alabeo (grados) o el cabeceo (pixeles) */
             qb = (int)(((u16)fxmul(f->phi, RAD2BAM) + 91U) / 182U);
             hh = fxmul(f->the, 57L * 65536L) * RY / 25 >> 16;
             qh = (int)CLAMP(hh, -RY * 2, RY * 2);
-            if (qb == s_ai_b && qh == s_ai_h) { pj_u = 3; break; }
+            if (qb == s_ai_b && qh == s_ai_h) { pj_u = 4; break; }
             s_ai_b = qb; s_ai_h = qh;
-            ai_begin(f); pj_y = ROW1 - RY + 1; pj_u = 1;
+            ai_begin(f); pj_y = ROW1 - RY + 1; pj_u = 2;
             break;
-        case 1:
+        case 2:
             ai_rows(pj_y, MIN(pj_y + AI_BAND - 1, ROW1 + RY - 1));
             pj_y += AI_BAND;
-            if (pj_y > ROW1 + RY - 1) pj_u = 2;
+            if (pj_y > ROW1 + RY - 1) pj_u = 3;
             break;
-        case 2: ai_end(); pj_u = 3; break;
-        case 3: draw_asi(f); pj_u++; break;
-        case 4: draw_alt(f); pj_u++; break;
-        case 5: draw_vsi(f); pj_u++; break;
-        case 6: draw_hdg(f); pj_u++; break;
-        case 7: draw_tc(f); pj_u++; break;
-        case 8: draw_rpm(f); pj_u++; break;
-        case 9: draw_cdi(r); pj_u++; break;
-        case 10: draw_radios(r, pi); pj_u++; break;
-        case 11: draw_engine(f, r); pj_u++; break;
-        case 12: draw_msgs(a, pi); draw_fps(pi); pj_u = 0; return 1;
+        case 3: ai_end(); pj_u = 4; break;
+        case 4: draw_asi(f); pj_u = 5; break;
+        case 5: draw_vsi(f); pj_u = 6; break;
+        case 6:                                   /* rumbo: la rosa solo gira de grado en grado */
+            {
+                u16 h = (u16)fxmul(f->psi, RAD2BAM);
+                pj_hd = (int)((((s32)h * 360L + 32768L) >> 16) % 360);
+            }
+            if (pj_hd == s_hdg) { pj_u = 9; break; }
+            s_hdg = pj_hd;
+            hdg_base(pj_hd); hdg_ticks(pj_hd); pj_u = 7;
+            break;
+        case 7: hdg_labels(pj_hd); pj_u = 8; break;
+        case 8: hdg_num(pj_hd); pj_u = 9; break;
+        case 9: draw_tc(f); pj_u = 10; break;
+        case 10: draw_rpm(f); pj_u = 11; break;
+        case 11: draw_cdi(r); pj_u = 12; break;
+        case 12: draw_radios(r, pi); pj_u = 13; break;
+        case 13: draw_engine(f, r); pj_u = 14; break;
+        default: draw_msgs(a, pi); draw_fps(pi); pj_u = 0; return 1;
         }
         if (plat_ticks() != tick0) return 0;
     }

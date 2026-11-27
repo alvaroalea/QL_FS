@@ -8,11 +8,11 @@ Este capítulo explica lo mínimo para ponerlo en marcha. Los siguientes cuentan
 
 | Elemento | Requisito |
 |:-------------|:-------------------------------------------------|
-| Ordenador | Sinclair QL (68008) o un emulador/compatible: sQLux, QPC2, QXL... |
-| Memoria | Probado con 640 KB (QL con ampliación). Con menos memoria no se ha probado. |
-| Pantalla | Modo 4: 512×256 píxeles y 4 colores (negro, rojo, verde y blanco), más tramas de gris. |
+| Ordenador | Sinclair QL equipado con Super Gold Card (68020) o un emulador/compatible: sQLux, QPC2, QXL... que tenga al menos una velocidad x8 de un QL standar |
+| Memoria | Al menos 640 KB (QL con ampliación de 512Kb). |
+| Pantalla | Modo 4: 512×256 píxeles y 4 colores (negro, rojo, verde y blanco) |
 | Almacenamiento | Disquete de doble densidad (720 KB) en `flp1_`, o disco duro/imagen QXL.WIN en `win1_`. No está preparado para microdrive: el escenario ibérico ocupa 450 KB. |
-| Teclado | El del QL. El programa lee la matriz del teclado directamente, así que se pueden pulsar varias teclas a la vez. |
+| Teclado | El del QL o compatible con IPC. |
 | Sonido (opcional) | Tarjeta QSound 2+ (chip AY-3-8910). Sin ella el simulador funciona en silencio. |
 
 ## Qué contiene el disco
@@ -26,7 +26,7 @@ El juego se entrega en dos imágenes con el mismo contenido: `qfs.img` (disquete
 | `iberia_scn` | Escenario Península Ibérica (450 KB). |
 | `demo_scn` | Escenario de prueba «Valle del QL» (19 KB). |
 | `planeador_acf`, `mono_acf`, `bimotor_acf`, `reactor_acf` | Los cuatro aviones. Son ficheros de texto que se pueden editar. |
-| `planeador_src`, `mono_src`, `bimotor_src`, `reactor_src` | Fondo del panel de cada avión (volcado de pantalla de 32 KB, lo genera `tools/mkpanel.c`). Si cambias un `*_acf`, regenera el `*_src` correspondiente. |
+| `planeador_src`, `mono_src`, `bimotor_src`, `reactor_src` | Fondo del panel de cada avión (formato RAW de de pantalla. |
 | `partida_sav` | Partida guardada con **G** en el menú (aparece al guardar). |
 
 ## Cargarlo desde disquete
@@ -65,7 +65,7 @@ El juego busca sus datos en la unidad que indica la variable `D$` del fichero `b
 Cambia `flp1_` por tu unidad en las líneas 110 y 130.
 
 ::: {.aviso}
-**No añadas texto detrás de `EXEC_W`.** Sin Toolkit II, una orden como `EXEC_W flp1_qfs;"flp1_"` cuelga el QL: por eso el programa recibe la unidad por la variable `D$` y no como argumento.
+**Compatibilidad:** No necesita Toolkit II, al usar la variable `D$` es compatible con cualquier combinacion de ROM.
 :::
 
 ## Si algo no va bien
@@ -126,7 +126,7 @@ Las distancias del escenario están a escala 1:2, así que los vuelos duran la m
 :::
 
 | OACI | Aeropuerto | Pistas | Elev. (m) | ATIS | Torre | ILS (pista principal) |
-|:--|:--------------|:--|--:|:--|:--|:--|
+|:--|:--------|:--|--:|:--|:--|:---------|
 | LEMD | Madrid Barajas | 32L / 32R | 610 | 118.67 | 118.15 | 109.90 (32R: 111.90) |
 | LEBL | Barcelona El Prat | 25R / 25L | 4 | 118.65 | 118.10 | 110.30 (25L: 108.30) |
 | LEPA | Palma de Mallorca | 24L / 24R | 8 | 119.42 | 118.30 | 109.70 (24R: 108.10) |

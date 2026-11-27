@@ -370,7 +370,7 @@ static void controls_frame(void)
     if (hit(KEY_Y)) f->auto_coord = !f->auto_coord;
     if (hit(KEY_T)) sim.clock = (sim.clock + (sh ? 23UL : 1UL) * 3600UL) % 86400UL;
     if (hit(KEY_TAB)) sim.paused = !sim.paused;
-    if (hit(KEY_BSL)) { sim.show_fps = !sim.show_fps; sim.fps_t0 = plat_ticks(); sim.fps_n = sim.fps_v = 0; sim.fps10 = sim.lps10 = -1; }   /* \ : indicador de FPS */
+    if (hit(KEY_BSL)) { sim.show_fps = !sim.show_fps; sim.fps_t0 = plat_ticks(); sim.fps_n = sim.fps_v = sim.fps_p = 0; sim.fps10 = sim.lps10 = sim.pps10 = -1; }   /* \ : indicador de FPS */
     if (hit(KEY_ESC)) sim.quit = 1;
     if (f->crash && hit(KEY_ENTER)) sim_reset();
     if (hit(KEY_R)) {                       /* siguiente aeropuerto de salida */
@@ -515,7 +515,7 @@ static void view_part_b(void)
     gfx_memcpy(sim.scr + (s32)VIEW_Y0 * SCR_STRIDE, backbuf, (s32)VIEW_H * SCR_STRIDE);
 }
 
-/* ---- vista en trozos (estudio de interrupciones, doc/interrupciones.md): cada llamada trabaja hasta el final del turno de 20 ms
+/* ---- vista en trozos (estudio de interrupciones, doc/optimizacion.md, «Planificador por turnos»): cada llamada trabaja hasta el final del turno de 20 ms
  * (cuando cambia el contador de 50 Hz) y continua en la siguiente. Los puntos de parada estan entre teselas, entre cuatro
  * elementos del orden, entre objetos y entre bandas de 16 filas del volcado. Devuelve 1 al completar un cuadro. */
 int sim_vjob_wire;
@@ -584,8 +584,10 @@ static void render_panel(void)
     pi.status = sim.status;
     pi.fps10 = sim.show_fps ? sim.fps10 : -2;     /* -2 oculto, -1 midiendo */
     pi.lps10 = sim.lps10;
+    pi.pps10 = sim.pps10;
     panel_update(sim.scr, &sim.f, &sim.r, &sim.atc, &pi, sim.part);
     sim.part = (sim.part + 1) % PANEL_PARTS;
+    if (sim.part == 0) sim.fps_p++;                /* una vuelta completa del panel */
 }
 
 /* ---- vista de mapa (tecla Q, src/map.c): se guarda el panel (20 KB; la vista 3D no merece la pena: se repinta sola en ~1 s), se dibuja el mapa y la vista 3D y el panel se paran (la fisica, la navegacion
@@ -659,10 +661,7 @@ void sim_frame(void)
         n++;
     }
     if ((s32)(now - sim.tick_phys) > 8) sim.tick_phys = now;      /* no acumular retraso */
-    if (contact) {
-        nav_update(&sim.r, &sim.w, &sim.f);
-        atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 1);
-    }
+    if (contact) atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 1);     /* (atc_update solo lee com y squawk de Radios: no necesita nav_update) */
     atc_scroll(&sim.atc);
     if (!sim.map) {                                                            /* con el mapa abierto no se pinta ni la vista ni el panel */
 #if VIEW_SPLIT
@@ -678,7 +677,8 @@ void sim_frame(void)
         sim.fps_n++;
         if (dt >= 50) {
             sim.fps10 = (int)((u32)sim.fps_v * 500UL / dt); sim.lps10 = (int)((u32)sim.fps_n * 500UL / dt);
-            sim.fps_v = sim.fps_n = 0; sim.fps_t0 += dt;
+            sim.pps10 = (int)((u32)sim.fps_p * 500UL / dt);
+            sim.fps_v = sim.fps_n = sim.fps_p = 0; sim.fps_t0 += dt;
         }
     }
     snd_update(&sim.f, &sim.r, sim.atc.new_msg, sim.f.crash);
@@ -689,24 +689,58 @@ void sim_frame(void)
 
 void sim_stop(void) { }
 #else
-/* ------------------------------------------------------------ planificador por interrupciones (doc/interrupciones.md)
+/* ------------------------------------------------------------ planificador por interrupciones (doc/optimizacion.md, «Planificador por turnos»)
  * La fisica (controls_step + flight_step, 1/12,5 s) corre dentro de la interrupcion de 50 Hz en uno de cada 4 turnos de 20 ms.
  * El resto reparte los turnos de un patron de 32 con la letra de cada uno; si la tarea anterior no ha acabado cuando llega un
  * turno, ese turno se salta (no hay retraso acumulado):
  *   F fisica (la hace la interrupcion; aqui solo se recuperan los pasos que dejo pasar)   K teclado (3 filas), mandos, sonido
  *   E motores   Y navegacion y ATC   Q panel (reanudable)   V vista 3D (reanudable; solida o de alambre, tecla W)   N nada */
 #ifndef SCHED_PAT
-#define SCHED_PAT "FKQVFKVVFKEVFKVVFKYNFKVVFKEVFKVV"        /* 12,5 pasos/s, teclado 12,5/s, panel y vista por los turnos libres */
+#define SCHED_PAT "VFKYVFKQVFKEVFKQVFKYVFKQVFKEVFKQ"        /* 12,5 pasos/s, teclado 12,5/s, panel (4 de 32) y vista por los turnos libres; K, E e Y saltados se recuperan */
 #endif
 static const char sch_pat[] = SCHED_PAT;
 static u32 sch_last;
 static int sch_on;
 static int sch_q_new = 1, sch_kn;
 static u32 sch_q_next;                         /* no se empieza otra vuelta del panel antes de este turno: sus turnos se los lleva la vista */
+static u32 sch_q_start;                        /* turno en que empezo la vuelta actual */
 #ifndef SCHED_PANEL_TICKS
-#define SCHED_PANEL_TICKS 8                      /* una vuelta del panel como mucho cada 8 turnos (6,25 por segundo) */
+#define SCHED_PANEL_TICKS 16                     /* una vuelta del panel empieza como mucho cada 16 turnos (3,1 por segundo); solo empieza en un turno Q */
+#endif
+#ifndef SCHED_PANEL_FAST
+#define SCHED_PANEL_FAST 8                       /* con holgura (la vista acaba un cuadro dentro del turno) el panel puede empezar una vuelta cada 8 turnos (6,25 por segundo), en cualquier turno */
 #endif
 static PanelInfo sch_pi;
+static u32 sch_vdone;                          /* turno en que acabo el ultimo cuadro de la vista, si fue antes de acabar el turno (holgura) */
+extern int sch_st_y, sch_st_fast;
+static int sch_ystage;                         /* trabajo Y pendiente: 0 nada, 1..NAV_PARTS partes de nav_update, NAV_PARTS+1 atc_update */
+
+static void sch_q_begin(u32 t)                 /* datos de la linea de estado de la vuelta que empieza */
+{
+    sch_q_start = t;
+    sch_pi.clock = sim.clock;
+    sch_pi.warn = build_status();
+    sch_pi.status = sim.status;
+    sch_pi.fps10 = sim.show_fps ? sim.fps10 : -2;
+    sch_pi.lps10 = sim.lps10;
+    sch_pi.pps10 = sim.pps10;
+    sch_q_new = 0;
+}
+
+static void sch_q_run(const u32 t)             /* sigue la vuelta del panel hasta que acabe o cambie el contador de 50 Hz (la unidad en curso puede pasarse) */
+{
+    if (panel_job_step(sim.scr, &sim.f, &sim.r, &sim.atc, &sch_pi, t)) { sch_q_new = 1; sch_q_next = sch_q_start + SCHED_PANEL_TICKS; sim.fps_p++; }
+}
+
+static void sch_y_step(u32 t)                  /* sigue el trabajo Y hasta que acabe o cambie el contador de 50 Hz (como mucho se pasa una parte, ~5 ms) */
+{
+    while (sch_ystage) {
+        if (sch_ystage <= NAV_PARTS) nav_part(&sim.r, &sim.w, &sim.f, sch_ystage - 1);
+        else atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 0);
+        if (sch_ystage > NAV_PARTS) { sch_ystage = 0; sch_st_y++; } else sch_ystage++;
+        if (plat_ticks() != t) return;
+    }
+}
 
 static void sch_phys(void)                     /* un paso de fisica (en la interrupcion o, recuperado, en el hilo principal) */
 {
@@ -737,71 +771,101 @@ static void sch_start(void)
     sch_on = 1;
     sch_last = plat_ticks();
     phys_hold = 0; phys_missed = 0;
-    sch_q_new = 1; sch_kn = 0; sch_q_next = 0;
+    sch_q_new = 1; sch_kn = 0; sch_q_next = 0; sch_ystage = 0; sch_vdone = sch_last - 1;
     plat_isr_set(sch_isr);
+}
+
+int sch_st_y, sch_st_e, sch_st_rec, sch_st_miss, sch_st_fast;     /* estadisticas del planificador (prof.c): partes Y acabadas, motores, tareas recuperadas, turnos saltados */
+
+static void sch_k(u32 t)                       /* teclado, mandos, mapa, contacto ATC, sonido y FPS */
+{
+    int contact;
+    read_keys(0);
+    controls_frame();
+    map_service();
+    contact = hit(KEY_K);
+    if (contact) atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 1);     /* (atc_update solo lee com y squawk de Radios: no necesita nav_update) */
+    if (hit(KEY_W)) sim_vjob_wire = !sim_vjob_wire;
+    if ((++sch_kn & 3) == 0) atc_scroll(&sim.atc);
+    snd_update(&sim.f, &sim.r, sim.atc.new_msg, sim.f.crash);
+    sim.atc.new_msg = 0;
+    if (sim.show_fps) {                        /* vistas y pasos de fisica por segundo (decimas), en ventanas de al menos 1 s */
+        u32 dt = t - sim.fps_t0;
+        if (dt >= 50) {
+            sim.fps10 = (int)((u32)sim.fps_v * 500UL / dt); sim.lps10 = (int)((u32)sim.fps_n * 500UL / dt);
+            sim.pps10 = (int)((u32)sim.fps_p * 500UL / dt);
+            sim.fps_v = sim.fps_n = sim.fps_p = 0; sim.fps_t0 += dt;
+        }
+    }
+    sim.frames++;
+}
+
+/* Lo que sobra del turno (el teclado ocupa 3-8 ms de 20, la fisica de la interrupcion ~10) y, en maquinas rapidas, de las llamadas siguientes dentro del mismo turno.
+ * Orden: la parte pendiente de Y; la vuelta del panel a medias (en los turnos que no son V, o en V si la vista esta justo entre dos cuadros); si la vista acaba de
+ * terminar un cuadro dentro de este turno (hay holgura: va a mas de 12,5 cuadros/s) y toca, una vuelta nueva del panel (cada SCHED_PANEL_FAST turnos); y por ultimo la vista,
+ * que sigue donde se quedo. Asi, antes de empezar un cuadro nuevo de la vista se acaba lo pendiente. */
+static void sch_pass(u32 t, int ch)
+{
+    int vidle = vj_state == 0;                 /* la vista esta entre dos cuadros */
+    if (plat_ticks() == t && sch_ystage) sch_y_step(t);
+    if (plat_ticks() == t && !sim.map) {
+        if (!sch_q_new) {
+            if (ch != 'V' || vidle) sch_q_run(t);
+        } else if (vidle && sch_vdone == t && (s32)(t - (sch_q_start + SCHED_PANEL_FAST)) >= 0) {
+            u32 due = sch_q_start + SCHED_PANEL_FAST;
+            sch_q_begin(t); sch_st_fast++;
+            if ((s32)(t - due) < SCHED_PANEL_FAST / 2) sch_q_start = due;     /* el ritmo no se atrasa por lo que tarda la vista en acabar su cuadro */
+            sch_q_run(t);
+        }
+    }
+    if (plat_ticks() == t && !sim.map && sim_vjob_step(t)) {
+        sim.fps_v++;
+        if (plat_ticks() == t) sch_vdone = t;
+    }
 }
 
 void sim_frame(void)                           /* se llama en bucle: cada vez que cambia el contador de 50 Hz hace la tarea del turno */
 {
-    u32 t = plat_ticks();
-    int contact, ch;
+    u32 t = plat_ticks(), u;
+    int ch, gk = 0, ge = 0, gy = 0;
     if (!sch_on) sch_start();
-    if (t == sch_last) return;
+    if (t == sch_last) { sch_pass(t, sch_pat[t & 31]); return; }     /* sigue el mismo turno: lo que sobre es de lo pendiente y de la vista */
+    /* turnos saltados por una unidad larga de la vista o del panel: las tareas K, E e Y (cortas, de ritmo fijo) se recuperan una vez, ahora;
+     * Q y V no (reanudan solos) y F tampoco (la hace la interrupcion y phys_missed recupera lo que dejo pasar) */
+    u = sch_last + 1;
+    if (t - sch_last > 32) u = t - 31;
+    sch_st_miss += (int)(t - sch_last - 1);
     sch_last = t;
+    for (; u != t; u++) {
+        ch = sch_pat[u & 31];
+        if (ch == 'K') gk = 1;
+        else if (ch == 'E') ge = 1;
+        else if (ch == 'Y') gy = 1;
+    }
     while (phys_missed > 0 && !phys_hold) { phys_missed--; sch_phys(); }
+    if (gk) { sch_k(t); sch_st_rec++; }
+    if (ge) { flight_engines(&sim.f); sch_st_e++; sch_st_rec++; }
+    if (gy) { if (!sch_ystage) sch_ystage = 1; sch_st_rec++; }
     ch = sch_pat[t & 31];
     switch (ch) {
     case 'K':
-        read_keys(0);
-        controls_frame();
-        map_service();
-        contact = hit(KEY_K);
-        if (contact) {
-            nav_update(&sim.r, &sim.w, &sim.f);
-            atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 1);
-        }
-        if (hit(KEY_W)) sim_vjob_wire = !sim_vjob_wire;
-        if ((++sch_kn & 3) == 0) atc_scroll(&sim.atc);
-        snd_update(&sim.f, &sim.r, sim.atc.new_msg, sim.f.crash);
-        sim.atc.new_msg = 0;
-        if (sim.show_fps) {                    /* vistas y pasos de fisica por segundo (decimas), en ventanas de al menos 1 s */
-            u32 dt = t - sim.fps_t0;
-            if (dt >= 50) {
-                sim.fps10 = (int)((u32)sim.fps_v * 500UL / dt); sim.lps10 = (int)((u32)sim.fps_n * 500UL / dt);
-                sim.fps_v = sim.fps_n = 0; sim.fps_t0 += dt;
-            }
-        }
-        sim.frames++;
+        if (!gk) sch_k(t);
         break;
-    case 'E': flight_engines(&sim.f); break;
+    case 'E':
+        if (!ge) { flight_engines(&sim.f); sch_st_e++; }
+        break;
     case 'Y':
-        nav_update(&sim.r, &sim.w, &sim.f);
-        atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 0);
+        if (!sch_ystage) sch_ystage = 1;       /* navegacion y ATC en partes: se acaban en los huecos de este turno y de los siguientes */
         break;
     case 'Q':
         if (sim.map) break;
-        if (sch_q_new && (s32)(t - sch_q_next) < 0) {          /* el panel acaba de completarse: este turno es de la vista */
-            if (sim_vjob_step(t)) sim.fps_v++;
-            break;
-        }
-        if (sch_q_new) {                       /* datos de la linea de estado de la vuelta que empieza */
-            sch_pi.clock = sim.clock;
-            sch_pi.warn = build_status();
-            sch_pi.status = sim.status;
-            sch_pi.fps10 = sim.show_fps ? sim.fps10 : -2;
-            sch_pi.lps10 = sim.lps10;
-            sch_q_new = 0;
-        }
-        if (panel_job_step(sim.scr, &sim.f, &sim.r, &sim.atc, &sch_pi, t)) { sch_q_new = 1; sch_q_next = t + SCHED_PANEL_TICKS; }
-        break;
-    case 'V':
-        if (!sim.map && sim_vjob_step(t)) sim.fps_v++;
+        if (sch_q_new && (s32)(t - sch_q_next) < 0) break;     /* el panel acaba de completarse: este turno es de la vista (sch_pass) */
+        if (sch_q_new) sch_q_begin(t);
+        sch_q_run(t);
         break;
     default: break;
     }
-    /* lo que sobre del turno (el teclado ocupa 3 ms de 20, la fisica de la interrupcion ~10) es de la vista, que sigue donde se quedo */
-    if (!sim.map && plat_ticks() == t)
-        if (sim_vjob_step(t)) sim.fps_v++;
+    sch_pass(t, ch);
 }
 #endif
 

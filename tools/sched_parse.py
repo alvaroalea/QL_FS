@@ -13,3 +13,6 @@ while i < len(m):
 sec = (st[241] - st[240]) / 7.5e6; ticks = r[203]; t = ticks / 50.0
 print("duracion %d turnos = %.2f s de reloj (%.2f s de CPU emulada, relacion %.3f)" % (ticks, t, sec, t / sec))
 print("fisica %.2f pasos/s (reloj) %.2f (real) | vistas completas %.2f/s | teclado %.2f/s" % (r[204] / t, r[204] / sec, r[205] / t, r[206] / t))
+if 207 in r:
+    print("panel %.2f vueltas/s | Y (nav+atc) %.2f/s | E (motores) %.2f/s | tareas K/E/Y recuperadas %d | turnos saltados %d (%.1f %%)" % (r[207] / t, r[208] / t, r[209] / t, r[210], r[211], 100.0 * r[211] / ticks))
+    if 212 in r: print("vueltas de panel empezadas con holgura (fuera de Q): %.2f/s" % (r[212] / t))

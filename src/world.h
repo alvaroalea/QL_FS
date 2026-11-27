@@ -40,7 +40,8 @@ typedef struct {
     u8  type, flags, lod, vshift;   /* lod: distancia maxima en unidades de 256 m */
     s32 ox, oy;                     /* origen en el mundo (m) */
     s16 oz;                         /* altitud del origen (m) */
-    u16 radius;                     /* radio envolvente (m) */
+    u16 radius;                     /* radio envolvente horizontal (m): colision, alcance, mapa */
+    u16 vrad;                       /* radio de vision (m): distancia del origen al vertice mas lejano, con la altura (se calcula al cargar) */
     u8  nv, nf;
     u8  nvf, nff;                   /* version lejana (solo techos): los nvf primeros vertices y las nff primeras caras; 0 = no hay */
     u16 fbytes;

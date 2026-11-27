@@ -346,10 +346,11 @@ void prof_run(void)
     {
         u32 t0, k;
         extern void sim_stop(void);
+        extern int sch_st_y, sch_st_e, sch_st_rec, sch_st_miss, sch_st_fast;
         int w;
         sim_vjob_wire = PROF_WIRE;
         for (w = 0; w < 400; w++) sim_frame();   /* calienta la cache de teselas */
-        sim.fps_v = 0; sim.frames = 0;
+        sim.fps_v = 0; sim.frames = 0; sim.fps_p = 0; sch_st_y = sch_st_e = sch_st_rec = sch_st_miss = sch_st_fast = 0;
         PROF_DUMP(99);
         k = sim.nsteps;
         t0 = plat_ticks();
@@ -357,8 +358,9 @@ void prof_run(void)
         while (plat_ticks() - t0 < PROF_SCHED_RUN) sim_frame();
         PROF_MARK(241);
         sim_stop();
-        { long v[4]; int j, b; v[0] = (long)(plat_ticks() - t0); v[1] = (long)(sim.nsteps - k); v[2] = sim.fps_v; v[3] = sim.frames;
-          for (j = 0; j < 4; j++) { PROF_MARK(250); PROF_MARK(203 + j); PROF_MARK(0); for (b = 24; b >= 0; b -= 8) PROF_MARK((int)((v[j] >> b) & 255)); } }
+        { long v[10]; int j, b; v[0] = (long)(plat_ticks() - t0); v[1] = (long)(sim.nsteps - k); v[2] = sim.fps_v; v[3] = sim.frames;
+          v[4] = sim.fps_p; v[5] = sch_st_y; v[6] = sch_st_e; v[7] = sch_st_rec; v[8] = sch_st_miss; v[9] = sch_st_fast;
+          for (j = 0; j < 10; j++) { PROF_MARK(250); PROF_MARK(203 + j); PROF_MARK(0); for (b = 24; b >= 0; b -= 8) PROF_MARK((int)((v[j] >> b) & 255)); } }
         PROF_DUMP(97);
         return;
     }

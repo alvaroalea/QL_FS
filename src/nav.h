@@ -28,7 +28,9 @@ typedef struct {
 } Radios;
 
 void nav_init(Radios *r);
+#define NAV_PARTS 5
 void nav_update(Radios *r, World *w, const Flight *f);
+void nav_part(Radios *r, World *w, const Flight *f, int k);   /* una de las NAV_PARTS partes de nav_update */
 const Nav *nav_find(World *w, u16 freq, int ndb, s32 x, s32 y);
 void freq_str(u16 f, char *buf);       /* 11030 -> "110.30" */
 #endif

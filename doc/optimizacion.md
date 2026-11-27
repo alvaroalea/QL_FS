@@ -9,6 +9,7 @@ con el mapa de enlace de `qcc -ms`. El código de la biblioteca de C (`.Xlmul`, 
 función que lo llamó. Hace falta el sQLux con el parche de perfil (la rama `profile` de `~/src/sQLux`, ya compilada en `build/sqlux`; otra ruta con
 `SQLUX=`) y las ROM en `~/src/sQLux/build/roms` (`ROMDIR=`).
 
+* **Planificador (`PROF_SCHED_RUN`): ×1, ×2, ×8 y ×40** (`SPEEDV=<n>`: QL, Gold Card, Super Gold Card, ilimitado; ver la parte «Planificador por turnos», secciones 8 y 9). El perfil por función, en cambio:
 * **Siempre SPEED = 1,0** (con la contención del ZX8301 y las interrupciones de QDOS). A toda marcha (SPEED 0) el emulador no
   cuenta esos ciclos y equivale a medir el C compilado para el host: sirve para iterar rápido pero no para decidir.
 * `PROFFLAGS="-DPROF_N=1 -DPROF_DUMPS=3"`: cuadros por volcado y número de volcados. El primero tras la carga lleva la
@@ -20,8 +21,9 @@ función que lo llamó. Hace falta el sQLux con el parche de perfil (la rama `pr
   **exactamente** lo mismo que la versión en C.
 
 > **Estado actual (27 nov 2026):** las cifras de las secciones intermedias son históricas, de cuando se midieron. Las vigentes están en
-> la última sección, «Ronda 3» (panel, luces en filas, marcas de pista, ordenación y el resumen con el pendiente); «Reevaluación y perfil del
-> simulador actual» es la ronda anterior.
+> la sección «Ronda 3» (panel, luces en filas, marcas de pista, ordenación y el resumen con el pendiente); «Reevaluación y perfil del
+> simulador actual» es la ronda anterior. Al final se han integrado tres estudios que antes eran ficheros aparte: «Horizonte artificial y rosa del
+> rumbo», «Planificador por turnos» (interrupciones de 50 Hz; sus secciones 1–9 son las de ese bloque) y «Memoria alta» (pila y montón en la RAM sin contención).
 
 ## Qué se encontró
 
@@ -73,7 +75,7 @@ panel y simulación se atienden al doble de ritmo** (`3D 0.6  SIM 1.2` en el ind
 más (cada cuadro repite el coste fijo de panel, teclado y 2 pasos de física, ~0,2 s). Sin limitar la física a 2 pasos por
 cuadro salía un 30-40 % peor.
 
-## Lo que queda (por orden de rentabilidad estimada) — histórico; la lista vigente está en la última sección
+## Lo que queda (por orden de rentabilidad estimada) — histórico; la lista vigente está en «Ronda 3»
 
 1. **Normales por cara** (el truco de Elite): descartar las caras traseras con un producto escalar antes de proyectar y
    proyectar solo los vértices que usa alguna cara visible. Aquí es más fácil que en Elite porque los edificios y
@@ -92,7 +94,7 @@ cuadro salía un 30-40 % peor.
 4. `view_world` (reunir y ordenar objetos, ~11 %): ordenar índices, no estructuras.
 5. (hecho) Lectura de teclado parcial. Con cuadros de ~1,5 s una pulsación corta puede caerse entre dos lecturas: mantener la tecla.
 6. (superado) La física costaba ~35 ms por paso. Tras `world_hit` espaciado, `fxdiv`/`fxmul` en ensamblador y motores cada 4 pasos
-   ya no es el cuello de botella: ~8 % en vuelo y solo ~2 % si se para (ver la última sección).
+   ya no es el cuello de botella: ~8 % en vuelo y solo ~2 % si se para (ver «Ronda 3»).
 
 ## Reunión de objetos y colisiones (escena 1, SPEED 1, volcado estacionario)
 
@@ -438,6 +440,14 @@ saltos aleatorios entre −66 y 33.000 pies) y compara la zona del altímetro: *
 Lo que queda es `gfx_line_xor` (~50 %, unos 220 ciclos por píxel: la 68008 con la contención de la pantalla). Se descarta especializar su bucle (color
 y sentido): ahorraría ~25 % de un 1 % del fotograma.
 
+**Descartado: copia limpia en vez de borrar con XOR** (27 nov 2026, sQLux a SPEED 1, `-DPROF_ALT=100`, escena 0). Variante probada: en cada repintado,
+`restore_box` de la esfera entera (73×51 píxeles, 1.020 bytes) desde `clean`, rectángulo negro + 2 cifras y las dos agujas. Resultado: **13,9 ms por
+repintado contra 8,1 de la versión con XOR** (el volcado cuesta 3,6 ms, unos 3,5 µs por byte de pantalla, más que las 70 píxeles de línea que se ahorran:
+`gfx_line_xor` pasa de 4,9 a 3,4 ms). Restaurar solo el rectángulo de la aguja de 1.000 pies no sale a cuenta: ese rectángulo siempre contiene el centro,
+así que habría que rehacer también la aguja de 10.000 pies (y a veces el texto); el balance estimado es −0,4 ms (5 %) por una lógica mucho más delicada.
+Borrar con XOR cuesta lo mismo que pintar y no necesita leer la copia. El texto tampoco es problema: `gfx_text` no usa la ROM (fuente propia `font5x7` y
+`gfx_text_raw` en ensamblador) y en el altímetro solo se repinta el dígito que cambia (no sale entre las diez primeras funciones del perfil).
+
 ### Punto 2: luces de pista, aproximación, calle de rodaje y ciudad como filas (`OF_ROWS`)
 
 **Análisis.** Cada luz era un vértice del escenario: `xform_obj3` la transformaba (~1.400 ciclos), `pj_xy` la proyectaba (~900) y `dl_plot` la
@@ -622,3 +632,484 @@ En nueve posiciones de la pista y del entorno: la fusión cambia 0-2 bytes (redo
 | 4 reactor, 12 km | 6,87 | 6,88 | 0 |
 
 Escena 0 por funciones: `poly_fast` 0,97 → 0,70 s, `xform_obj3` 1,09 → 0,99, `pj_xy` 0,52 → 0,47. Lo estimado era 6-7 % en cabecera: los techos aportan lo previsto (~7 %); la fusión, casi nada (−11 objetos de ~110), porque el suelo pequeño del escenario está disperso.
+
+## Horizonte artificial y rosa del rumbo: dónde se iba el tiempo y qué se ha hecho
+
+Medido en sQLux (rama `profile`, `IPC_ROM = Hermes2_20_rom`, 7,5 MHz con contención del ZX8301), escena 1, con el avión maniobrando
+(`BENCH_MODE=7` y `8`, ver `tools/ql_bench.sh`). Todo lo nuevo da **los mismos píxeles** que lo anterior salvo lo indicado.
+
+### Resultado
+
+| | antes | ahora |
+| --- | ---: | ---: |
+| Horizonte, un repintado (alabeo de 3º por actualización) | 158 ms (110 con `AI_INCR`) | **~28 ms** (filas 24 + avión 1,4 + decidir 2) |
+| Rosa del rumbo, un grado de cambio | 95 ms | **17 ms** |
+| Vuelta completa del panel con todo cambiando | 260 ms | **120 ms** |
+| FPS del panel en los turnos libres (física en la interrupción, `FKQQ…`) | 1,9 | **3,25** |
+| Panel en un turno de cada 8 / en uno de cada 4 | 1,0 / 1,45 | **1,05 / 1,95** |
+
+No llega a 6,25 FPS, pero la vuelta completa en el peor caso ya baja de 120 ms y la mayor unidad indivisible es la altitud (29 ms); el horizonte
+y la rosa dejan de ser el problema. Quedan, por orden: altitud 29 ms, horizonte 28, radios 18, rosa 17, motor 11, mensajes 5.
+
+### Horizonte artificial
+
+Dónde estaban los 158 ms: filas 33 ms (una división de 32 bits y dos productos por fila), **aro 64 ms** (dos elipses de 32 segmentos cada
+una, con seno y coseno) y avión de referencia 7 ms (seis líneas y un rectángulo), todo en cada cambio de un grado.
+
+1. **Una división por cuadro** (`AI_INCR`): el borde cielo/tierra es una recta; su posición en cada fila sale por sumas en Q8. Cambia hasta
+   un píxel en el borde frente a la división exacta.
+2. **Solo se repintan los píxeles que cambian** (`AI_DIFF`, por omisión con `AI_INCR`): por cada fila se recuerda qué color hay a la izquierda y
+   dónde empieza el de la derecha. Al cambiar la actitud solo se pinta el tramo entre la frontera vieja y la nueva (una `gfx_hspan`), o la fila
+   entera si cambia el color de la izquierda; una fila que no cambia no cuesta nada. Si el avión sube o baja, solo se repintan las filas entre el horizonte viejo y el nuevo.
+3. **El aro ya no se dibuja** (63,9 ms → 0): el tramo libre de cada fila se calcula de la copia limpia del panel (desde el centro hasta el primer
+   punto no negro), así que el relleno no llega a pisar el aro. Antes se repintaba porque `hw_tab` lo pisaba en las filas de arriba y de abajo.
+4. **El avión de referencia es una máscara** (5 filas × 7 grupos, calculada una vez dibujando las líneas): 7,4 → 1,4 ms, y solo se estampa
+   si ha cambiado alguna de las filas 129–133.
+
+Comprobado en PC con 3.000 actitudes aleatorias (saltos de ±30º, cabeceos, giro completo): píxel a píxel **idéntico** a repintar todo con
+`AI_INCR` más aro y avión.
+
+Lo que no se hizo: ensamblador para el horizonte. Con el diferencial ya solo se pintan las filas que cambian y el coste está en las llamadas a
+`gfx_hspan` (que ya es ensamblador); el resto del bucle son sumas.
+
+### Rosa del rumbo
+
+95 ms = copia del fondo 20 + doce rayitas largas 35 + doce números 36 + rumbo 3. Cambios:
+
+1. **`gfx_memcpy` para menos de 48 bytes** (`ql68k.s`): la versión anterior guardaba 11 registros con `MOVEM` en cada llamada y copiaba 24 bytes
+   con un bucle de 6 vueltas; la copia de la rosa (57 filas de 24 bytes) tardaba 20 ms. Ahora la vía corta no salva registros.
+2. **`gfx_blit`** (nuevo, ensamblador): copia `n` filas de `m` bytes con pasos distintos sin llamar a `gfx_memcpy` por fila. La copia de la rosa
+   pasa de 20 a **5,5 ms** (el suelo es la pantalla: ~30 ciclos por byte). Lo usan también `gfx_copy_box` (todos los `restore_box`) y los instrumentos.
+3. **30 copias del fondo en vez de 10** (`GYN`): el patrón de rayitas largas se repite cada 30º, así que van en la copia: 35 → 0,14 ms. Cuestan
+   41 KB de RAM alta (13 KB antes) y algo más de tiempo al arrancar el panel (30 copias en vez de 10; sin medir).
+4. **Posiciones de los números por tabla**: los 12 sitios se repiten cada 30º (solo cambia qué número hay en cada sitio); se calculan una vez
+   (`lab_xy[30][12]`, 1,4 KB) y desaparecen `dpt`, los senos y los productos de 32 bits de cada número.
+5. **Letras preparadas** (idea de los bitmaps por dígito): `glyph_make` deja cada letra en las 8 posiciones dentro del grupo de 8 píxeles, con
+   «conservar» y «poner» ya calculados; `gfx_glyph` (ensamblador) las pinta con `and`/`or` sin desplazamientos ni máscaras. Son 11 letras de la rosa
+   (cifras 0–6 blancas y N E S W verdes) más las cifras rojas del rumbo en sus 3 posiciones: 5,6 KB + 2,5 KB.
+6. El rumbo se separa en dígitos con restas, no con `u_num` (dos divisiones de la biblioteca).
+
+Resultado: copia 5,5 + rayitas 0,1 + números 9,4 + rumbo 1,7 = **17 ms**.
+
+#### ¿Tiene sentido un bitmap por dígito en lugar de imprimir texto?
+
+Parcialmente. Medido con `gfx_glyph` solo (sin código C alrededor): 18 letras de dos grupos tardan 6,2 ms y de un grupo 4,3 ms, es decir
+0,24–0,35 ms por letra, frente a ~0,6–0,9 ms con `gfx_text_raw`. Gana una **2×–3×** en la letra, y otro tanto en C que ya no hay que calcular
+(el cuello eran los productos de 32 bits de la biblioteca en el cálculo de índices y posiciones: cambiarlos por tabla y desplazamientos
+bajó los números de 16 a 10 ms). Pero el suelo no es el cálculo: es el **acceso a la pantalla**, que cuesta unos 30–45 ciclos por byte
+leído o escrito. Una letra de 7 filas toca 56 bytes de pantalla (lectura y escritura de palabras), y eso son ~2.000 ciclos que ningún
+bitmap evita mientras la letra se mezcle con lo que hay detrás (fondo transparente).
+
+Dos intentos de evitarlo no funcionaron:
+
+* **Componer la rosa en RAM alta y volcarla** (los accesos del texto pasan a memoria sin contención y la pantalla solo recibe una copia):
+  20,7 ms contra 17 ms. La copia de entrada (hi → hi) y la de salida (hi → pantalla) cuestan lo que se ahorra.
+* Un mapa de bits opaco por cada rumbo (360 imágenes de la rosa entera = 480 KB): no cabe.
+
+Lo que sí sería general: `gfx_glyph` podría usarse para el texto de **todos** los instrumentos (cada cadena fija, cada cifra), con tablas de
+letras por tinta (blanco, verde, rojo, ~14 KB por tinta para el alfabeto de 64 caracteres). Quita un 2×–3× a los 18 ms de radios, los 11 del motor
+y los mensajes; no se ha hecho por no estar pedido.
+
+### Qué quedó descartado o pendiente
+
+* Rayitas cortas en las copias: ya lo estaban (10 copias antes; ahora 30 con las largas).
+* La **altitud** (29 ms, ahora la mayor unidad del panel) son cuatro agujas de OR exclusivo (borrar y pintar, 8 líneas con recorte) y una cifra de 5 dígitos:
+  mismo tratamiento posible (máscaras de aguja por ángulo, 16 ángulos × 2 agujas).
+* El texto de radios (18 ms) y motor (11 ms) se rehace entero para compararlo: comparar los valores antes de formar las cadenas lo deja casi a cero cuando no hay cambios.
+
+### Qué cambia en el código
+
+* `src/ql68k.s`: `gfx_memcpy` con vía corta, `gfx_blit`, `gfx_glyph`. `src/gfx.c/.h`: sus versiones en C para el PC.
+* `src/panel.c`: `ai_begin/ai_rows/ai_plane/ai_end` (con `AI_INCR`, `AI_DIFF`), `ai_limits`, rosa con tablas y letras preparadas, `GYN = 30`.
+  `AI_INCR` y `AI_DIFF` van activos con `USE_SCHED` (`qfs.h`); `-DAI_NODIFF` los separa. Sin `AI_INCR` el horizonte es el de siempre.
+* Diferencias de píxeles frente al código anterior (solo con `AI_INCR`): hasta un píxel en el borde cielo/tierra; y en la rosa, donde un número
+  verde cae sobre una rayita blanca el número gana (antes ganaba la rayita porque se dibujaba después).
+* `src/bench.c` modo 8 (partes sueltas del horizonte y de la rosa) y modo 7 (unidades del panel).
+
+## Planificador por turnos (estudio de interrupciones): física, panel y vista 3D repartidos por turnos de la interrupción de 50 Hz
+
+Pregunta: ¿se puede enganchar la física a una de cada 4 interrupciones (12,5 Hz estables, `F N N N F N N N…`), el panel a una de cada 8
+(6,25 FPS, desplazado `F+2`, quizá partido en dos) y una vista 3D solo de alambre en 4 trozos (3,125 FPS), saltando el turno cuando la
+tarea anterior no ha acabado?
+
+**Respuesta corta** (todo medido en sQLux a 7,5 MHz con la contención del ZX8301, escena 1 = final a 5 km sobre Madrid, monomotor):
+
+| Objetivo | Resultado |
+| --- | --- |
+| Física estable a 12,5 Hz, independiente del resto | **Sí, pero solo si corre dentro de la interrupción** (20 líneas de ensamblador). En todas las pruebas con la física en la interrupción salió **12,50 Hz** aunque el panel o la vista acapararan la CPU. Como turno cooperativo (sin interrupción) cae a 9,3–11,2 Hz en cuanto hay panel o 3D. Hay que sacar de ella los motores y la navegación. |
+| Física sola, sin panel ni 3D, con teclado, a toda marcha | **41 pasos/s** (55 sin motores ni navegación): a 12,5 Hz usa el 25–30 % de la CPU. |
+| Panel a 6,25 FPS estables | **No.** Una vuelta completa con todo cambiando cuesta **260 ms** (6,25 FPS pedirían 1,6 s de CPU por segundo). Con los turnos libres: 1,0 FPS (un turno cada 8), 1,5 (cada 4) y 2,0–2,3 FPS como máximo. |
+| Vista 3D de alambre a 3,125 FPS | **No.** El alambre **no es más barato** que el sólido (487 ms contra 499 ms por vista) y un cuadro necesita ~24 turnos. Salen **0,6 FPS** (un trozo por periodo) y 0,85 FPS con todos los turnos libres. |
+| Las dos cosas a la vez | Panel 1,4 FPS + vista 0,2 FPS, o panel 0,65 + vista 0,55; la física intacta a 12,5 Hz con la interrupción. |
+
+El mecanismo funciona; lo que no cabe es el contenido. Los números que faltan y lo que habría que recortar están al final.
+
+### 1. Peso del modelo físico y del 3D
+
+Tamaños del enlace actual (`qfs.MAP`: texto, datos, BSS, en bytes). El ejecutable entero ocupa 80.888 bytes (79.162 antes de este estudio;
+los 1,7 KB de más son el panel y la vista reanudables y la partición de la física).
+
+| Parte | Código | Datos / tablas | RAM de trabajo |
+| --- | ---: | ---: | --- |
+| **Modelo físico** (`flight` 5.520, `aircraft` 3.186, `nav` 1.560, `atc` 2.666, `fixmath` 528) | 13.460 | 3.146 (tablas de seno, atan y atmósfera) | `Flight` 328 + `AircraftDef` 240 + `Radios` 80 + `Atc` 240 + BSS de `aircraft` 1.728: **< 2,7 KB** |
+| `fxmul`/`fxdiv`/`isqrt` en ensamblador | ~0,7 KB de los 4.454 de `ql68k.s` | | |
+| **3D** (`view3d` 6.814, `gfx` 2.258, `world` 4.830) | 13.902 + ~3,7 KB de `ql68k.s` = **~17,6 KB** | | BSS de `view3d` 9.004 + `gfx` 1.280 = 10,3 KB; buffer de vista 12.288 (96 × 128); **caché de teselas: 56 KB** en Madrid (30 teselas; la mayor mide 30 KB; tope 49) |
+| Panel (`panel` 10.488) | 10.488 | | 742 de BSS + fondo de 20 KB (`.src`) + copia limpia de 20 KB en RAM alta |
+
+El código de la física y el del 3D pesan casi lo mismo (~17 KB), pero la física casi no usa RAM (< 3 KB) y el 3D arrastra ~80 KB (buffer, BSS y caché de
+teselas). La caché de teselas es además el único dato que comparten la física (`world_ground`, `world_hit`) y la vista (ver 5). Los ~0,7 KB de ensamblador
+de la física son una estimación.
+
+### 2. Cuánto cuesta cada tarea (`BENCH_MODE=1,5,6,7`, ciclos reales del 68008)
+
+| Tarea | ms |
+| --- | ---: |
+| `controls_step` + `flight_step` (sin motores) | 14,3 (12,9 – 20,5) |
+| `flight_engines` (cada 4 pasos en el código actual) | 7,8 |
+| `nav_update` + `atc_update` (cada 12 pasos de 1/25 s) | **27** (eran **78** antes de rechazar balizas por caja, ver 6) |
+| Teclado: una fila de `KEYROW` / tres filas / ocho | 0,5 / 2,0 / 4,9 con el IPC de alto nivel; **1,45 / 5,2 / 12,9 con `IPC_ROM = Hermes2_20_rom`** (ver 7) |
+| `controls_frame` / `snd_update` / `build_status` | 1,3 / 2,8 / 6,3 |
+| Panel, unidades con todo cambiando (avión alabeando, altitud, rumbo…) | horizonte 110 (filas 37 + avión y aro **70** + decidir 3), **rumbo 84**, altitud 28, radios 18, motor 9, mensajes 5, resto ~4 → **260 vuelta completa** |
+| El mismo panel sin que cambie nada | 43 (se rehacen las cadenas de radios y motor para compararlas) |
+| Vista sólida completa / de alambre completa | 499 / 487 |
+| Vista, por unidades de trabajo (alambre) | preparar cámara y teselas **73**, reunir una tesela 1,3 (máx. 13), ordenar 4 elementos 2,2, **dibujar un objeto 13 (máx. 41)**, volcar 16 filas 4,9 |
+
+Un turno dura 20 ms, de los que QDOS se queda ~1,3 ms en su propia interrupción (se ve en el mínimo y el máximo de cada medida). Ninguna unidad del panel (84, 70, 28 ms) ni de la vista (73, 41 ms) cabe en un
+turno; la física sin motores (14 ms) sí.
+
+### 3. La frecuencia de 12,5 Hz y la dinámica
+
+`PHYS_DT` ahora se puede cambiar (`-DPHYS_DT=5243L -DPHYS_HZ=12`). `tests/dtstudy.c` repite las mismas maniobras con 1/25 s y con 1/12,5 s:
+
+| Prueba | 1/25 s | 1/12,5 s |
+| --- | ---: | ---: |
+| Despegue (s / m de carrera) | 17,24 / 320 | 17,12 / 321 |
+| Subida 40 s: IAS (kt), altitud (m), VS (fpm) | 83,2 / 791 / 1287 | 83,0 / 791 / 1284 |
+| Pulso de profundidad: cabeceo máximo (º) | 8,13 | 7,92 |
+| Alabeo tras 1,5 s de alerones (º) | 31,64 | 31,77 |
+| Pérdida (s hasta entrar, IAS en kt) | 69,5 / 47,2 | 68,9 / 47,4 |
+| Aterrizaje desde 3 km | 116,26 s, sin accidente | 116,32 s, sin accidente |
+| Reactor a 130 m/s (181 kt IAS), mandos a ±60 % cada 0,4 s: velocidad de cabeceo máx. (º/s) | 5,88 | 6,29 |
+
+Con la dinámica actual el paso de 0,08 s es estable (el peor caso para un Euler, el reactor con presión dinámica máxima, queda ~7 % por
+encima y amortigua igual) y cuesta la mitad de CPU. Hay que cambiar el reloj de la simulación (`PHYS_HZ` entero se usa para contar segundos) y
+`nav` (12 pasos pasan a 6), cosas que el estudio no toca.
+
+### 4. Experimentos de planificación (`BENCH_MODE=10`, 1000 turnos = 20 s cada uno)
+
+Patrón de 32 turnos con `E` (motores) en los turnos 3 y 19 y `Y` (navegación + ATC) en el 6, de las letras: `F` física, `K` una fila de teclado
+y controles, `Q` panel reanudable (trabaja hasta el final del turno y sigue en el siguiente), `V` vista de alambre reanudable, `N` nada.
+«Coop» = la física es un turno más (no interrumpe a nadie); «ISR» = la física se llama desde el sondeo de 50 Hz (`tm_poll`) en los turnos
+0 de cada 4. Un turno cuyo hueco pasó mientras la tarea anterior seguía se **salta** (se cuenta). Banderas: `-DAI_INCR -DENG_EXTERNAL -DB_NAVX=1`.
+
+| Patrón base | | CPU | F real (Hz) | K (filas/s) | **Panel FPS** | **Vista FPS** | Turnos saltados (K / Q / V) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `FKNN FKNN` (solo física y teclado) | coop | 28 % | 12,47 | 12,5 | – | – | 0 / – / – |
+| | **ISR** | 25 % | **12,53** | 12,5 | – | – | 0 |
+| `FKQN FKNN` (panel en F+2 cada 8, el planteado) | coop | 53 % | **10,82** | 10,9 | 1,00 | – | 33 / 0 / – |
+| | ISR | 52 % | **12,53** | 10,9 | 1,00 | – | 33 |
+| `FKQN FKQN` (panel en F+2 cada 4, «dos mitades») | coop | 66 % | **10,12** | 10,2 | 1,55 | – | 47 / 1 / – |
+| | ISR | 65 % | **12,49** | 10,1 | 1,45 | – | 48 / 24 |
+| `FKQQ FKQQ` (panel en todo lo libre) | coop | 78 % | **9,29** | 9,8 | 2,30 | – | 54 / 57 / – |
+| | ISR | 77 % | **12,51** | 9,4 | 1,95 | – | 62 / 88 |
+| `FVNN FVNN` (alambre, un trozo por periodo, el planteado) | coop | 60 % | 12,47 | – | – | **0,60** | – / – / 0 |
+| | ISR | 56 % | 12,53 | – | – | **0,60** | |
+| `FKVV FKVV` (alambre en todo lo libre) | coop | 73 % | **10,87** | 12,3 | – | 0,85 | 4 / – / 18 |
+| | ISR | 70 % | 12,52 | 11,3 | – | 0,80 | 24 / – / 21 |
+| `FKQV FKQV` (panel y alambre a medias) | coop | 78 % | **9,36** | 10,1 | 1,55 | 0,25 | 49 / 5 / 33 |
+| | ISR | 75 % | 12,52 | 9,8 | 1,40 | 0,20 | 54 / 25 / 46 |
+| `FVQN FVNN` (F N P N con trozos de 3D) | coop | 75 % | **11,22** | – | 0,65 | 0,55 | |
+| | ISR | 73 % | 12,53 | – | 0,65 | 0,55 | |
+
+* **La física en la interrupción no se entera de lo que haga el resto** (12,49–12,53 Hz en los ocho patrones, con la relación de reloj en
+  1,002). Como turno cooperativo la pierden los patrones con panel o 3D, porque ninguna unidad cabe en 20 ms y el turno `F` que llega mientras
+  tanto se salta.
+* **El salto de turno funciona** (`K` pierde del 13 al 25 % de sus turnos cuando el panel se pasa de su hueco) pero lo que garantiza es que no se
+  acumule retraso, no que las tareas largas salgan: el panel y la vista tardan 12–25 turnos en acabar un cuadro por mucho que se parta.
+* La CPU total queda en 25 % (física, motores, navegación y teclado) + el reparto del resto. No sobra para 6,25 + 3,125 FPS.
+* Física dentro de la interrupción, motores y navegación **dentro** de ella (variante ingenua, medida antes): la relación de reloj baja a 0,962
+  (se pierde el 3,8 % de las interrupciones porque el paso dura más de 20 ms). Con motores y navegación fuera, el paso de la interrupción dura
+  **10,2 ms de media y 15,8 de máximo** (`F en la interrupción`, 250 pasos): cabe, con 4 ms de margen.
+
+### 5. Qué hay que hacer para que sea real
+
+1. **Física en la interrupción** (hecho en `qdos68k.s`: `tm_poll` llama a `plat_isr_fn` con todos los registros salvados y pila propia
+   `plat_isr_sp`; coste con el enganche vacío, un `TST.L` y un `BEQ` por interrupción). Dentro solo `controls_step` + `flight_step` con
+   `-DENG_EXTERNAL`; motores (7,8 ms) y navegación + ATC (27 ms) pasan a tareas normales (`flight_engines`, letras `E` e `Y`).
+2. **Compartir datos**: la interrupción escribe `sim.f` mientras el panel y la vista lo leen (solo se ve un instrumento con el dato un paso
+   atrasado). Lo peligroso es la **caché de teselas**: `world_ground` y `world_hit` leen teselas y la lista de colisiones que
+   `world_tiles_near` reorganiza al cambiar de tesela (~13 ms por tesela cargada). Hay que enmascarar interrupciones (`SR |= $0700`) durante
+   esa carga; el retraso (< 1 turno de la física) es aceptable. En las pruebas de 20 s no hubo cambios de tesela, así que **esta carrera no
+   está probada**.
+3. **Trabajo reanudable en vez de turnos fijos**: `sim_vjob_step` (vista) y `panel_job_step` (panel) trabajan hasta que cambia el contador de
+   50 Hz y siguen en el turno siguiente. Es más fino que «cuatro trozos»; aun así hay unidades que no caben en 20 ms.
+4. **Para llegar de verdad a 6,25 FPS de panel** habría que bajar la vuelta completa de 260 ms a unos 40 ms (el 25 % de la CPU): sacar el aro
+   y el avión de referencia del horizonte de cada repintado (70 ms), pintar la rosa del rumbo (84 ms) por diferencias o solo al cambiar un
+   grado, no rehacer las cadenas de radios y motor (43 ms constantes) y refrescar cada instrumento a su ritmo (rumbo y horizonte rápidos;
+   radios y motor a 1 Hz). Con eso el panel ocuparía ~25 % de la CPU y a la vista le quedaría otro ~50 %: 160 ms por cuadro a 3,125 FPS.
+5. **Para llegar a 3,125 FPS de alambre** un cuadro tiene que costar ≲ 150 ms (hoy ~490): 3–4 veces menos trabajo (alcance de 5–8 km,
+   sin suelo, sin ciudades), preparar la lista de objetos solo al moverse (73 ms), líneas más rápidas en ensamblador (20 % del cuadro)
+   y partir `draw_obj` por caras para que ningún objeto pase de 15 ms. El alambre solo no ahorra nada: el 55 % del cuadro (transformar,
+   proyectar, reunir, ordenar) es el mismo.
+
+### 6. Cambios en el código (todo con el comportamiento por defecto intacto)
+
+* `src/qdos68k.s`: enganche `plat_isr_fn` / `plat_isr_sp` en `tm_poll`.
+* `src/nav.c`: rechazo por caja de las balizas antes de `dist_m` (mismo resultado, `nav_update` de 76 a 26 ms).
+* `src/flight.c/.h`: `flight_engines()` separada; `-DENG_EXTERNAL` hace que `flight_step` no la llame. Salida de las pruebas idéntica.
+* `src/qfs.h`: `PHYS_DT` / `PHYS_HZ` se pueden cambiar por línea de órdenes.
+* `src/view3d.c/.h`: reunir y ordenar en pasos (`view_begin_init`, `view_gather_step`, `view_sort_step`; `view_world_begin` los encadena y da lo
+  mismo); `view_wire` pinta caras como contorno, sin relleno ni ordenar.
+* `src/sim.c/.h`: `sim_vjob_step` (vista reanudable, alambre o sólida).
+* `src/panel.c/.h`: el horizonte en tres tiempos (`ai_begin/ai_rows/ai_end`, salida **idéntica**); `-DAI_INCR` calcula el horizonte con una
+  sola división por cuadro (160 → 110 ms; difiere hasta 52 bytes por cuadro, un píxel en el borde cielo/tierra; **desactivado**);
+  `panel_piece` y `panel_job_step`.
+* `src/bench.c`, `src/prof.c`, `tools/ql_prof.sh` (`PROFDIR`, `BUILD_ONLY`, `RUN_ONLY`), `tools/ql_bench.sh`, `tools/bench_sched.sh`,
+  `tools/bench_parse.py`, `tools/bench_table.py`, `tests/dtstudy.c`: el banco de pruebas.
+
+Reproducir (necesita el sQLux con el parche de perfil, como `make prof`):
+
+```
+tools/ql_bench.sh 1  /tmp/costes 1 -DAI_INCR -DENG_EXTERNAL          # costes sueltos
+tools/ql_bench.sh 7  /tmp/panel  1 -DAI_INCR                         # unidades del panel
+tools/ql_bench.sh 6  /tmp/vista  1 -DBENCH_UNITS                     # unidades de la vista
+tools/ql_bench.sh 11 /tmp/fisica 1 -DB_RUN=500                       # física sola a toda marcha
+tools/bench_sched.sh /tmp/e id:patron:isr:banderas ...               # planificador por turnos; tools/bench_table.py /tmp/e
+gcc -DHOST ... tests/dtstudy.c ; gcc ... -DPHYS_DT=5243L -DPHYS_HZ=12 ... tests/dtstudy.c     # dinámica a 25 y 12,5 Hz
+```
+
+### 7. Cautelas
+
+* **Todo es emulador** (sQLux con ciclos del 68008 y contención del ZX8301, relación ciclos/reloj 1,002). No se ha probado en un QL real.
+  Las secciones 2 a 5 se midieron **sin** `IPC_ROM`; la sección 8 las repite con `IPC_ROM = Hermes2_20_rom` (el 8049 real, que ahora lleva `tools/ql_prof.sh` con la rama `profile` de `~/src/sQLux`): no cambia ninguna conclusión.
+* **El teclado**: aquí una fila de `KEYROW` cuesta 0,5 ms, pero las rondas anteriores de este documento cuentan ~125.000 ciclos (17 ms) por fila medidos en otra ronda.
+  Una de las dos cifras no es la del hardware: si fueran 17 ms, tres filas serían 50 ms y la lectura del teclado también tendría que ir
+  fuera de los 20 ms de un turno. Hay que medirlo en el QL.
+* **La interrupción de sondeo** llama a código en C con una pila propia de 4 KB y no hace llamadas a QDOS dentro (el teclado queda fuera). No se
+  ha probado en Minerva real ni con otras ROM; sQLux sí ejecuta la ROM `MIN198`.
+* La escena 1 es un caso denso (aeropuerto y ciudad a 5 km). En crucero la vista cuesta menos y el panel, sin cambios, ~40 ms.
+* El panel «todo cambiando» es el peor caso (el avión alabea a 3º por refresco y sube 15 m y gira 3º entre vueltas); en vuelo recto con
+  los instrumentos quietos solo cuestan las cadenas de radios y motor.
+
+### 8. Repetición con `IPC_ROM = Hermes2_20_rom` y el simulador entero con el planificador
+
+**Planificador por turnos, mismos 16 experimentos** (`/e4`; entre paréntesis lo que salió sin `IPC_ROM`). Solo cambia el teclado: una tarea `K` (3 filas + mandos
++ ...) pasa de 2 ms a 3 ms de reloj en su turno, y una fila de `KEYROW` de 0,5 a 1,45 ms. Todo lo demás queda en una décima:
+
+| Patrón | | F real (Hz) | Panel FPS | Vista FPS |
+| --- | --- | ---: | ---: | ---: |
+| solo física y teclado | coop / ISR | 12,53 / 12,52 (12,47 / 12,53) | – | – |
+| panel en F+2 cada 8 | coop / ISR | 10,92 / 12,49 (10,82 / 12,53) | 1,00 / 1,00 | – |
+| panel en F+2 cada 4 | coop / ISR | 10,12 / 12,52 (10,12 / 12,49) | 1,55 / 1,45 | – |
+| panel en todo lo libre | coop / ISR | 9,16 / 12,52 (9,29 / 12,51) | 2,30 / 1,90 (2,30 / 1,95) | – |
+| alambre, un trozo por periodo | coop / ISR | 12,53 / 12,52 | – | 0,60 / 0,60 |
+| alambre en todo lo libre | coop / ISR | 11,02 / 12,52 (10,87 / 12,52) | – | 0,80 / 0,80 (0,85 / 0,80) |
+| panel y alambre a medias | coop / ISR | 9,67 / 12,52 (9,36 / 12,52) | 1,55 / 1,40 | 0,20 / 0,20 |
+| `FVQN FVNN` | coop / ISR | 11,33 / 12,51 | 0,60 / 0,60 | 0,50 / 0,55 |
+
+La física en la interrupción sigue en 12,5 Hz exactos (paso: 10,2 ms de media, 15,8 de máximo; relación de reloj 1,002) y la CPU total, igual que antes.
+Las conclusiones de la sección 4 no cambian.
+
+**Todo el simulador con el planificador** (`make` lo activa por omisión; `make SCHED=0` vuelve al bucle de siempre; tras cambiar de modo hay que
+`make clean`). Es el programa real, no el banco: `sim_frame` hace la tarea del turno según `SCHED_PAT` (`VFKYVFKQVFKEVFKQVFKYVFKQVFKEVFKQ`: teclado y
+mandos en el turno 1 de cada 4, motores `E` y navegación `Y` en turnos fijos, panel `Q` —uno de cada 8 turnos, 4 de 32— y vista `V` por los libres; el indicador de la tecla `\` muestra `3D`, `SIM` y `PAN`, las vueltas del panel por segundo), la física va en la interrupción de
+50 Hz, el reloj del simulador se cuenta con los 50 Hz y la tecla **W** alterna vista sólida y de alambre. Medido con `PROF_SCHED_RUN` (30 s de reloj, tras
+calentar la caché), escena 1 (final a 5 km) y escena 0 (cabecera):
+
+| Escena | Física | Vistas completas | Teclado |
+| --- | ---: | ---: | ---: |
+| 1, vista sólida | **12,50 pasos/s** (12,52 reales) | 0,67 /s | 11,0 /s |
+| 1, alambre | 12,49 | 0,60 | 11,1 |
+| 0 (cabecera, sólida) | 12,50 | 0,33 | 10,4 |
+
+**Navegación y ATC por partes (letra `Y`).** `nav_update` cuesta ~23 ms y `atc_update` ~1,2 (medido en sQLux, `tools/ql_bench.sh 1`), más que un turno. `nav_update`
+se parte en `NAV_PARTS` = 5 (`nav_part`: NAV1 3,6 ms, NAV2 4,1, ADF 3,7, balizas en dos mitades 7,3 y 4,7; `nav_update` las llama todas y da el mismo resultado) y el turno `Y` solo
+arranca el trabajo (`sch_ystage`): `sch_y_step` hace una parte tras otra en lo que sobra del turno y de los siguientes (antes que la vista) y se para en cuanto cambia el contador de
+50 Hz, así que como mucho un turno se pasa por una parte (≤ 7 ms) en vez de 27 ms. `Y` está dos veces por patrón (cada 16 turnos); la pulsación de contacto (`K`) llama solo a `atc_update` (no necesita `nav_update`: solo lee `com` y `squawk`).
+
+**Recuperación de turnos saltados y tres patrones** (`sim_frame`: si el contador avanza más de uno, las letras `K`, `E` e `Y` que cayeron en los turnos saltados se
+ejecutan una vez cada una en cuanto el hilo principal vuelve; `Q` y `V` reanudan solos y `F` la hace la interrupción). Medido con `PROF_SCHED_RUN=1500` (30 s de reloj, SPEED 1,
+sQLux, volcado tras calentar; `tools/sched_parse.py`), todos con el código nuevo (`Y` por partes, `K` sin `nav_update`). Física 12,48-12,50 pasos/s en las doce medidas.
+
+| Patrón | Escena | Vistas/s | Panel (vueltas/s) | `Y` /s | Teclado /s | Turnos saltados |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| A `FKQVFKVVFKEVFKVVFKYNFKVVFKEVFKVV` (el anterior) | 0 cabecera | 0,83 | 1,20 | 1,56 | 12,45 | 15,5 % |
+| | 1 final 5 km | 1,33 | 0,33 | 1,57 | 12,46 | 16,9 % |
+| | 3 noche | 1,17 | 0,13 | 1,57 | 10,49 | 47,8 % |
+| | 4 reactor 12 km | 1,27 | 0,30 | 1,53 | 11,60 | 29,7 % |
+| B `FKQVFKEVFKQVFKYVFKQVFKEVFKQVFKYV` | 0 | 0,70 | 4,70 | 3,13 | 12,50 | 13,8 % |
+| | 1 | 1,13 | 1,57 | 3,13 | 12,47 | 14,8 % |
+| | 3 | 1,06 | 0,93 | 2,36 | 10,48 | 43,5 % |
+| | 4 | 1,10 | 1,40 | 3,10 | 11,63 | 25,3 % |
+| **C `VFKYVFKQVFKEVFKQVFKYVFKQVFKEVFKQ`** (por omisión) | 0 | 0,70 | 5,00 | 3,13 | 12,50 | 13,1 % |
+| | 1 | 1,10 | 1,60 | 3,13 | 12,50 | 13,1 % |
+| | 3 | 1,07 | 0,83 | 2,83 | 10,60 | 41,3 % |
+| | 4 | 1,13 | 1,37 | 3,13 | 11,73 | 24,3 % |
+
+Lo que se lee: el panel pasa de 0,1-1,2 a 0,8-5 vueltas/s a cambio de un 15-20 % de vistas; `Y` completa todas sus vueltas (3,13/s) salvo de noche (90 %); el teclado
+no llega a 12,5/s en las escenas 3 y 4 porque una unidad larga de la vista cubre más de un periodo de `K` (4 turnos) y las `K` saltadas se recuperan como una sola.
+
+**Panel por partes en los huecos de turno** (`sch_q_run`). El turno `Q` solo *empieza* la vuelta (guarda la línea de estado, `build_status` ~4,8 ms) y la vuelta sigue en lo que sobra
+de todos los turnos que no son de la vista, después de la parte pendiente de `Y` (`panel_job_step` ya era reanudable). Una vuelta nueva no empieza antes de `SCHED_PANEL_TICKS`
+turnos desde que empezó la anterior (16 por omisión: 3,1 vueltas/s como máximo) y siempre en un turno `Q`. Unidades de `panel_job_step`, medidas en sQLux con todo cambiando
+(`tools/ql_bench.sh 7 salida 1 -DAI_INCR`): altitud 9,8 ms (**la primera de la vuelta**, para que quepa en el turno `Q` con `build_status`), horizonte (decidir 2,7, nueve bandas de 1,5-3,3, avión y aro 1,8),
+velocidad 0,5, variómetro 0,6, **rumbo en tres unidades** (fondo y rayitas 5,7, números 7,7, rumbo central 1,5; antes una de 15 ms), viraje 1,1, rpm 1,5 (máx 11,6), CDI 0,5, radios 0,7, motor 2,5,
+mensajes y FPS 4,3. **Vuelta completa 61 ms en 21 unidades** (los 260 ms de la sección 2 son anteriores al horizonte incremental). Comprobado en el PC: tras 80 vueltas con el avión
+maniobrando la pantalla del panel es idéntica, píxel a píxel, a la del orden anterior.
+
+| `SCHED_PANEL_TICKS` | Escena | Vistas/s | Panel (vueltas/s) | Teclado /s | Turnos saltados |
+| --- | --- | ---: | ---: | ---: | ---: |
+| (antes: panel solo en `Q`, hueco 8) | 0 / 1 / 3 / 4 | 0,70 / 1,10 / 1,07 / 1,13 | 5,00 / 1,60 / 0,83 / 1,37 | 12,50 / 12,50 / 10,60 / 11,73 | 13 / 13 / 41 / 24 % |
+| 8 | 0 | 0,70 | 5,87 | 12,50 | 11,1 % |
+| | 1 | 0,97 | 5,03 | 12,43 | 11,8 % |
+| | 3 | 0,90 | 2,93 | 10,67 | 36,9 % |
+| | 4 | 0,97 | 4,16 | 11,89 | 20,9 % |
+| **16** (por omisión) | 0 | 0,73 | 3,00 | 12,50 | 12,9 % |
+| | 1 | 1,00 | 3,00 | 12,50 | 12,9 % |
+| | 3 | 0,93 | 2,23 | 10,50 | 37,3 % |
+| | 4 | 1,07 | 2,77 | 11,77 | 23,2 % |
+| 32 | 0 | 0,80 | 1,57 | 12,50 | 14,9 % |
+| | 1 | 1,13 | 1,53 | 12,50 | 13,9 % |
+| | 3 | 1,00 | 1,37 | 10,47 | 40,4 % |
+| | 4 | 1,10 | 1,50 | 11,93 | 24,2 % |
+
+Física 12,47-12,50 pasos/s, `Y` 2,9-3,1/s y motores 3,1/s en todas. Con 16 el panel sube de 0,8-1,6 a 2,2-3,0 vueltas/s (escenas 1, 3 y 4) por un 5-13 % de vistas; con 8 llega a 4-6 vueltas/s en las escenas
+0, 1 y 4 por un 12-16 %; con 32 el panel se queda como estaba. De noche (escena 3) el límite lo pone el coste de la vuelta, no el valor.
+
+**Máquinas rápidas** (`sch_pass`). Si la vista acaba un cuadro antes de que acabe el turno (la máquina da más de 12,5 cuadros/s), lo que queda de ese turno y de las llamadas
+siguientes dentro del mismo turno (`sim_frame` ya no vuelve sin hacer nada si el contador no ha cambiado) se reparte así: primero lo pendiente (la parte de `Y`, la vuelta del panel a medias,
+también en un turno `V` si la vista está entre dos cuadros) y, si la vista acaba de terminar un cuadro dentro del turno, una vuelta **nueva** del panel cada `SCHED_PANEL_FAST` = 8 turnos
+(6,25 por segundo) en cualquier turno, no solo en `Q`; la vista empieza el cuadro siguiente después. El ritmo se ancla al instante previsto de la vuelta, no al real, para que no se atrase por lo
+que tarda la vista en acabar su cuadro. En una máquina lenta nada cambia (la holgura no existe). Medido con `SPEEDV=<n> PROF_SCHED_RUN=1500` (`tools/ql_prof.sh`: la CPU emulada es n veces la del QL; el
+contador de 50 Hz sigue el vídeo real). Velocidades de referencia: **×1 QL, ×2 QL con Gold Card, ×8 QL con Super Gold Card, ×40 ilimitado**. Con `SPEEDV` distinto de 1 la columna «real» de `sched_parse.py` no significa nada:
+
+| CPU | Escena | Vistas/s | Panel (vueltas/s) | Teclado /s | Turnos saltados |
+| --- | --- | ---: | ---: | ---: | ---: |
+| ×1 (QL) | 0 cabecera | 0,76 | 3,29 | 12,47 | 13,0 % |
+| | 1 final 5 km | 1,00 | 3,10 | 12,37 | 13,5 % |
+| | 3 noche | 0,93 | 2,47 | 10,27 | 37,5 % |
+| | 4 reactor 12 km | 1,03 | 2,83 | 11,53 | 23,5 % |
+| ×2 (Gold Card) | 0 | 2,03 | 3,53 | 12,50 | 4,4 % |
+| | 1 | 2,93 | 3,33 | 12,50 | 5,9 % |
+| | 3 | 2,57 | 2,60 | 12,47 | 33,7 % |
+| | 4 | 2,93 | 3,00 | 12,50 | 16,2 % |
+| ×8 (Super Gold Card) | 0 | 9,60 | 5,10 | 12,50 | 0 |
+| | 1 | 15,03 | 6,10 | 12,50 | 0 |
+| | 3 | 12,77 | 6,10 | 12,50 | 0 |
+| | 4 | 14,33 | 6,17 | 12,50 | 0 |
+| ×40 (ilimitado) | 0 | 49,97 | 6,27 | 12,50 | 0 |
+| | 1 | 80,83 | 6,27 | 12,50 | 0 |
+| | 3 | 67,83 | 6,27 | 12,50 | 0 |
+| | 4 | 74,83 | 6,23 | 12,50 | 0 |
+
+Con el ritmo anclado, 30 s de reloj por celda. Física 12,50 pasos/s, `Y` 3,1/s y motores 3,1/s en todas. A ×1 y ×2 (vista por debajo de 12,5 cuadros/s) el panel ya pasa de los 3,1/s del ritmo normal en las
+escenas 0 y 1 porque a veces la vista acaba un cuadro dentro del turno (0,2-1,4 vueltas/s empiezan con holgura); a ×8 las escenas 1, 3 y 4 ya dan más de 12,5 vistas/s y el panel va a ~6,1 (el tope es 6,25); la
+escena 0, la más cargada, da 9,6 vistas/s y 5,1 vueltas/s; a ×40 el panel está en el tope. Sin saltos de turno desde ×8. La vista sube del ritmo de la física porque tras acabar un cuadro empieza otro con lo que sobra del turno.
+
+Cambios que ello trae al código normal:
+
+* `USE_SCHED` (Makefile) fija `PHYS_DT` = 1/12,5 s, `ENG_EXTERNAL` y `AI_INCR` (el horizonte cambia hasta un píxel en el borde cielo/tierra).
+* La física de la interrupción no integra si el hilo principal reorganiza las teselas (`view_begin_init`) o reinicia el vuelo (`sim_reset`): cuenta
+  el paso como perdido y el hilo principal lo recupera después (`phys_hold`, `phys_missed`). Es una protección sencilla; sigue sin probarse un cambio de tesela con
+  la física corriendo en el QL real.
+* `plat_isr_set()` (`platform_ql.c`, pila de 8 KB; en PC no hace nada) y `sim_stop()` (la llama `main_ql.c` al acabar el vuelo).
+* El mensaje de choque se pinta también en la vista reanudable; `flight.c` calcula el salto de colisiones con `PHYS_HZ`.
+* Pruebas: `tests/schedtest.c` (PC, con `-DUSE_SCHED`; simula la interrupción con `host_tick()`) despega y da 12,50 pasos/s y el reloj exacto;
+  `hosttest` sale idéntico.
+
+Qué mirar en un QL real: que el reloj (tecla `\`: ahora el segundo número son pasos de física por segundo, ~12,5) no se atrase —si lo hiciera, la
+interrupción tarda más de 20 ms—, que el teclado responda (cada fila se lee cada ~0,4 s en las filas poco usadas) y que no se cuelgue al cambiar de tesela.
+
+### 9. Resumen de los cambios del planificador (27 noviembre 2026)
+
+Todo medido en sQLux con `PROF_SCHED_RUN=1500` (30 s de reloj), escenas 0, 1, 3 y 4, y comprobado en el PC (`hosttest` idéntico a la versión anterior, `schedtest` a 12,50 pasos/s).
+
+| Cambio | Dónde | Efecto |
+| --- | --- | --- |
+| Patrón `VFKYVFKQVFKEVFKQVFKYVFKQVFKEVFKQ` (V antes de F; Y 2, Q 4, E 2 por 32 turnos) | `src/sim.c` `SCHED_PAT` | panel con 4 turnos de 32 en vez de 1; `K` e `Y` fijos |
+| Indicador `3D … SIM … PAN …` (vueltas de panel por segundo) | `panel.c`, `sim.c` (`fps_p`, `pps10`) | tecla `\` |
+| `nav_update` en 5 partes (`nav_part`: NAV1 3,6 ms, NAV2 4,1, ADF 3,7, balizas 7,3 + 4,7) y `atc_update` 1,2 ms | `src/nav.c` | ninguna unidad pasa de ~7 ms; antes ~23 ms de golpe |
+| Turno `Y` solo arranca el trabajo; sigue en los restos de turno antes que el panel y la vista | `sim.c` (`sch_ystage`, `sch_y_step`) | `Y` acaba en 1-2 turnos y completa 3,1 ciclos/s |
+| Contacto ATC (`K`) ya no llama a `nav_update` (`atc_update` solo lee `com` y `squawk`) | `sim.c` | −23 ms en cada pulsación |
+| `K`, `E` e `Y` saltados por una unidad larga se recuperan una vez | `sim_frame` | `K` a 12,5/s salvo cuando una unidad de la vista cubre más de 4 turnos (de noche y reactor: 10,3-11,7) |
+| Panel: altitud la primera, rumbo en 3 unidades, vuelta en 21 unidades (61 ms con todo cambiando) | `panel.c` (`panel_job_step`) | pantalla idéntica píxel a píxel |
+| El panel sigue en los restos de los turnos que no son V; `SCHED_PANEL_TICKS` = 16 entre inicios de vuelta | `sim.c` (`sch_q_run`) | de 0,1-1,2 a 2,2-3,3 vueltas/s a ×1 por un 5-13 % de vistas |
+| Máquinas rápidas: pasada `sch_pass` (pendiente → vuelta nueva del panel con holgura cada `SCHED_PANEL_FAST` = 8 → vista) y `sim_frame` trabaja también en llamadas repetidas del mismo turno | `sim.c` | panel a 6,1-6,3 vueltas/s desde ×8; vista de 10 a 80 cuadros/s |
+| Medida: `SPEEDV` en `tools/ql_prof.sh`, estadísticas del planificador en `prof.c`/`sched_parse.py`, partes de `nav` en el banco (`bench.c`) | `tools/`, `src/prof.c`, `src/bench.c` | |
+
+Velocidades de medida a usar siempre: ×1, ×2, ×8 y ×40 (QL, Gold Card, Super Gold Card, ilimitado).
+
+**Pendiente / no hecho:** meter el teclado en la interrupción (el IPC es una `trap #1` que no se ha probado dentro de la interrupción ni en un QL real; en el hardware una fila de IPC podría costar ~17 ms,
+ver sección 7); un `K` por cada `K` saltado (dos lecturas seguidas dan la misma pulsación); partir la altitud (9,8 ms) si se quiere que quepa en un hueco menor que el turno `Q`;
+medir el planificador completo en un QL real.
+
+## Memoria alta: todo el programa en la RAM alta (sin la contención del ZX8301)
+
+Los primeros 128 KB de RAM ($20000–$3FFFF) los comparte la CPU con el ZX8301: cada acceso espera al vídeo (en sQLux: `zx8301_insn` y
+`zx8301_ram`, tanto en la captura de instrucciones como en los datos). A partir de $40000 no hay contención. Lo que sigue es qué estaba
+abajo sin que lo supiéramos, cuánto costaba y cómo se ha arreglado.
+
+### Dónde estaba cada cosa (`tools/addr_parse.py`, `-DPROF_ADDR`)
+
+Medido con Minerva 1.98, JS y RAMTOP de 512, 640 y 768 KB (siempre lo mismo):
+
+| | antes | ahora |
+| --- | --- | --- |
+| Código del programa | $09–$0B…, **arriba** | arriba |
+| Datos globales (`sim`, tablas, BSS) | **arriba** (a continuación del código) | arriba |
+| **Pila de la tarea** (`_stack`, 32 KB) | **$3D8FE: en la RAM contenida** | $46962: arriba |
+| **`malloc`** (teselas del escenario, objetos, tablas del mundo, modelo del avión, listas de colisión, mapas de letras) | **$2BB1C–$33B6C: en la contenida** | arriba |
+| `plat_alloc_hi` (vista 3D, panel, rosa) | arriba (ya estaba) | arriba |
+| Pila de la interrupción (8 KB) | arriba (es un array global) | arriba |
+
+Es decir: el código y las variables globales ya iban arriba (QDOS carga la tarea, de ~110 KB, en el primer hueco donde cabe, y por debajo de
+$40000 solo quedan, se estima, unos 70 KB libres), pero **la pila y todo lo que daba `malloc` salían del montón común por abajo, que es la RAM interna**. El
+`plat_alloc_hi` de la vista solo cubría el buffer de vídeo; lo demás que se lee sin parar —las teselas con los vértices y caras que
+transforman `gather_tile`, `xform_obj` y `poly_fast` en cada cuadro, y las llamadas, argumentos y variables locales de todas las funciones en la
+pila— corría con los estados de espera del vídeo.
+
+### Qué se ha hecho (`src/platform_ql.c`, `src/main_ql.c`, `src/qdos68k.s`)
+
+* **Tapón** (`plat_himem_init`): al arrancar se llena el hueco bajo del montón con bloques que se quedan reservados (tallas de 32 KB hasta 64 bytes,
+  hasta que `malloc` devuelve una dirección ≥ $40000); a partir de ahí **cualquier `malloc` del programa, de la biblioteca de C o de `fopen` cae
+  arriba**. Son ~77 KB de RAM interna (`$12E80` en la prueba). Se devuelven al salir (`plat_exit`). Si no hay RAM de expansión (el primer
+  `malloc` tras el tapón sale bajo o falla) se suelta el tapón y el programa funciona como antes: en un QL de 128 KB todo es lento y no hay remedio.
+* **Pila alta**: `_stack` baja de 32 KB a 6 KB (solo hasta `main`), se reserva un bloque de 24 KB arriba y `plat_run` (`plat_run_on_stack`,
+  ensamblador) llama al programa real con la pila allí: guarda la pila vieja en la nueva, hace `jsr` y la recupera al volver. No se toca ningún registro salvo A0, A1 y A7.
+* `-DNO_HIMEM` (compilar) deja el comportamiento anterior, para medir.
+* **Aviso en el menú**: `plat_low_warn` pinta en rojo «AVISO: PROGRAMA EN RAM LENTA (CONTENIDA)» si hay RAM de expansión y el código o los
+  datos globales caen por debajo de $40000.
+
+La parte baja queda **vacía para el programa** (el tapón la ocupa): el menú no usa memoria apreciable (dibuja en la pantalla) y la lista de
+teselas del escenario (`tdir_off`, `tdir_size`, 20 KB, solo se leen al cargar una tesela) también está arriba, porque con el tapón no hay forma
+de pedir memoria baja. Una reserva de datos «fríos» abajo sería posible dejando un bloque del tapón como reserva y repartiéndolo a mano; ahora
+mismo sobraría complejidad por 20 KB que no se leen en el bucle.
+
+### Resultado (escena 1 y 0 de `src/prof.c`, 10 cuadros, SPEED 1,0)
+
+| | todo abajo (`NO_HIMEM`) | pila y monton arriba |
+| --- | ---: | ---: |
+| Escena 1 (final a 5 km), s por 10 cuadros | 4,30 | **3,38** (−21 %) |
+| Escena 0 (cabecera), s por 10 cuadros | 7,52 | **6,18** (−18 %) |
+| Planificador, vistas por segundo (escena 1, física en la interrupción) | 0,67 | **0,77** (+15 %) |
+| Planificador, pasos de física por segundo | 12,50 | 12,50 |
+
+Todo el programa corría un quinto más despacio por esos accesos. Lo medido antes de este cambio (las secciones anteriores de este documento, el planificador y el horizonte y la rosa) se hizo con la pila y el montón abajo; todas esas cifras son por tanto pesimistas en esa
+proporción para el programa final.
+
+### Sobre el código
+
+Hoy el ejecutable (~80 KB de código y ~26 KB de datos globales en un mismo bloque) no cabe en los ~70 KB que quedan libres bajo $40000, así que
+QDOS lo carga arriba; es lo que sale en las pruebas con ambas ROM. Si el ejecutable se hiciera pequeño (p. ej. quitando el panel o el escenario
+de Iberia) podría caer abajo; el aviso del menú lo detecta. Para **forzarlo** arriba haría falta que el hueco bajo estuviera lleno **antes** del
+`EXEC`: un primer programa residente que llame a `plat_himem_init`, se quede suspendido (`mt_susjb`) y lance el segundo, o equivalente desde
+SuperBASIC. No se ha implementado: no hay forma de probar en el emulador un QDOS que cargue por abajo (los dos ROM probados cargan arriba) y
+en esa situación el aviso ya lo dice. La alternativa sería hacer el código independiente de la posición (`bsr` y datos relativos a A4), que c68 no genera.
+
+### Qué mirar en un QL real
+
+* `plat_himem_ok` y el aviso del menú: con 512 KB de RAM de expansión no debe salir el aviso.
+* Que abrir ficheros y canales (disco o red) siga funcionando con el tapón puesto: QDOS reserva sus propias estructuras en el montón común
+  y, con el hueco bajo lleno, las pone arriba. Si faltara memoria arriba, el programa se queda sin ella antes: el tapón se puede achicar
+  quitando tallas de la lista (`plat_himem_init`).
+* La pila alta es de 24 KB (antes 32 KB bajos): si hubiera desbordamiento, subir el 24576 de `plat_himem_init` y `plat_run`.

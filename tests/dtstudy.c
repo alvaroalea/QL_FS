@@ -1,5 +1,5 @@
 /* dtstudy.c - la fisica a otro paso de tiempo: mismas maniobras con PHYS_DT = 1/25 s (por omision) o 1/12,5 s (-DPHYS_DT=5243L -DPHYS_HZ=12).
- * Imprime "clave valor" para compararlas (doc/interrupciones.md). Uso: build/dtstudy25 y build/dtstudy125 */
+ * Imprime "clave valor" para compararlas (doc/optimizacion.md, «Planificador por turnos»). Uso: build/dtstudy25 y build/dtstudy125 */
 #include "../src/sim.h"
 #include "../src/platform.h"
 #include <stdio.h>

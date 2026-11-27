@@ -52,12 +52,16 @@ static void vor_calc(const Nav *n, s32 x, s32 y, u16 obs, int *flag, s16 *cdi)
     *cdi = (s16)CLAMP(c, -127, 127);
 }
 
-void nav_update(Radios *r, World *w, const Flight *f)
+/* nav_update en NAV_PARTS partes independientes (0 NAV1, 1 NAV2, 2 ADF, 3 y 4 balizas, cada mitad de la lista): cada una recorre la lista de radioayudas (3-5 ms en el QL)
+ * y deja sus campos de Radios completos, de modo que el planificador puede repartirlas entre varios turnos (sim.c, letra Y). */
+void nav_part(Radios *r, World *w, const Flight *f, int k)
 {
     s32 x = f->x >> 8, y = f->y >> 8, z = f->z >> 8, d, c;
     int i;
-    u16 hdg = (u16)fxmul(f->psi, RAD2BAM), b;
+    u16 b;
 
+    switch (k) {
+    case 0:
     /* NAV1: VOR o ILS */
     r->n1 = nav_find(w, r->nav1, 0, x, y);
     r->n1_flag = 0; r->cdi1 = 0; r->gs_valid = 0; r->gs = 0; r->dme10 = -1; r->n1_loc = 0;
@@ -90,23 +94,33 @@ void nav_update(Radios *r, World *w, const Flight *f)
             r->dme10 = d * 10 / 1852;
         }
     }
+    break;
+    case 1:
     /* NAV2: solo VOR */
     r->n2 = nav_find(w, r->nav2, 0, x, y);
     r->n2_flag = 0; r->cdi2 = 0;
     if (r->n2 && r->n2->type != NAV_ILS) vor_calc(r->n2, x, y, r->obs2, &r->n2_flag, &r->cdi2);
 
+    break;
+    case 2:
     /* ADF */
     {
+        u16 hdg = (u16)fxmul(f->psi, RAD2BAM);
         const Nav *n = nav_find(w, r->adf, 1, x, y);
         r->adf_valid = n != NULL;
         if (n) r->adf_rel = (u16)(iatan2(n->y - y, n->x - x) - hdg);
     }
-    /* balizas: cono vertical de unos 300 m + 1/4 de la altura */
-    r->marker = 0;
+    break;
+    case 3:
+    case 4:
+    /* balizas: cono vertical de unos 300 m + 1/4 de la altura (parte 3: primera mitad de la lista, parte 4: la segunda si no hubo baliza) */
+    if (k == 3) r->marker = 0;
+    else if (r->marker) break;
     {
-        const Nav *n = w->nav;
+        int half = w->nnav / 2;
+        const Nav *n = w->nav + (k == 3 ? 0 : half);
         s32 lim;
-        for (i = w->nnav; i > 0; i--, n++) {
+        for (i = k == 3 ? half : w->nnav - half; i > 0; i--, n++) {
             if (n->type < NAV_OM || n->type > NAV_IM) continue;
             lim = 300 + (z - n->z) / 4;          /* rechazo rapido sin raiz: la distancia no baja de max(|dx|, |dy|) */
             if (ABS(n->x - x) >= lim || ABS(n->y - y) >= lim) continue;
@@ -114,4 +128,12 @@ void nav_update(Radios *r, World *w, const Flight *f)
             if (d < lim) { r->marker = n->type; break; }
         }
     }
+    break;
+    }
+}
+
+void nav_update(Radios *r, World *w, const Flight *f)
+{
+    int k;
+    for (k = 0; k < NAV_PARTS; k++) nav_part(r, w, f, k);
 }

@@ -186,7 +186,7 @@ void flight_step(Flight *f, World *w)
 
     /* motores: cambian despacio (constantes de tiempo de medio segundo o mas), asi que se calculan cada ENG_N pasos con el
      * paso de tiempo multiplicado; en los demas se reutiliza el empuje (aT y asimetria, en Q16) del ultimo calculo.
-     * Con -DENG_EXTERNAL los motores no se calculan aqui: los llama quien reparte las tareas (flight_engines, doc/interrupciones.md) */
+     * Con -DENG_EXTERNAL los motores no se calculan aqui: los llama quien reparte las tareas (flight_engines, doc/optimizacion.md, «Planificador por turnos») */
 #ifdef ENG_EXTERNAL
     tick = 1;
 #else

@@ -13,7 +13,7 @@ typedef struct {
     u32 clock;             /* segundos del dia */
     const char *status;    /* linea de estado */
     int warn;              /* bits: 1 perdida, 2 tren, 4 combustible */
-    int fps10, lps10;      /* vistas 3D y cuadros de simulacion por segundo x10; -1 midiendo, -2 oculto */
+    int fps10, lps10, pps10;   /* vistas 3D, cuadros de simulacion y vueltas del panel por segundo x10; -1 midiendo, -2 oculto */
 } PanelInfo;
 
 /* acf: ruta del fichero del avion; el fondo del panel se carga de su gemelo .src (volcado crudo de 32 KB de la pantalla) */

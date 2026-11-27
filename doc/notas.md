@@ -7,7 +7,6 @@
 
 ## Coste gordo
 - Luces strobe en avion
-- Una vista de mapa
 
 # Bugs
 - A veces los poligonos hacen cosas raras
@@ -18,3 +17,4 @@
 - (hecho) Que la tesela del aeropuerto este al nivel del aeropuerto
 - (hecho) Luces PAPI en todas las pistas (4 luces, blancas o rojas segun el angulo), barras de umbral completas y numero de pista pintado
 - (hecho) Luces verdes taxi
+- (hecho) Una vista de mapa

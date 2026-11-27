@@ -11,7 +11,7 @@ int   plat_keyrow(int row);       /* KEYROW del IPC (bit a 1 = pulsada) */
 void  plat_isr_set(void (*fn)(void));   /* funcion en C que se llama en cada interrupcion de 50 Hz (NULL = ninguna); en PC no hace nada */
 int   plat_run(int (*fn)(void));           /* llama a fn con la pila en RAM alta (QL); en PC, directamente */
 int   plat_low_warn(void);                 /* QL: 1 si el programa esta en la RAM contenida habiendo expansion; en PC 0 */
-void  plat_himem_init(void);            /* QL: pila y monton en la RAM sin contencion (doc/memoria_alta.md); en PC no hace nada */
+void  plat_himem_init(void);            /* QL: pila y monton en la RAM sin contencion (doc/optimizacion.md, «Memoria alta»); en PC no hace nada */
 void  plat_frame(void);           /* fin de cuadro (en PC: volcado de pantalla) */
 void *plat_alloc_hi(long n);      /* memoria de la RAM de expansion (>= $40000, sin contencion con el ZX8301); en PC, malloc */
 void  plat_path(char *out, const char *name);   /* "mono.acf" -> "flp1_mono_acf" */

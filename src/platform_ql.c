@@ -33,7 +33,7 @@ void psg_write(int reg, int val)
     p[0] = (u8)val;  p[2] = 0x0E; p[2] = 0x0A;
 }
 
-/* ---- memoria alta ($40000 en adelante, sin contencion) para todo lo que se usa a menudo (doc/memoria_alta.md)
+/* ---- memoria alta ($40000 en adelante, sin contencion) para todo lo que se usa a menudo (doc/optimizacion.md, «Memoria alta»)
  * En el QL el programa y sus datos globales los pone QDOS arriba, pero la pila de la tarea (c68: _stack) y todo lo que da malloc salen del
  * monton comun por el principio, que es la RAM interna del ZX8301: cada acceso espera al video. plat_himem_init llena ese hueco bajo con
  * bloques que se quedan reservados (tapon) y desde entonces malloc solo da memoria alta; la pila se cambia a un bloque alto. Los bloques

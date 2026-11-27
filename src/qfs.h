@@ -104,7 +104,7 @@ extern const u8  font5x7[64 * 7];
 
 /* ---------------- tiempo ---------------- */
 #define TICKS_HZ    50           /* interrupcion de cuadro del QL (PAL) */
-#if defined(USE_SCHED) && !defined(PHYS_DT)   /* planificador por interrupciones (doc/interrupciones.md): fisica a 12,5 Hz y motores aparte */
+#if defined(USE_SCHED) && !defined(PHYS_DT)   /* planificador por interrupciones (doc/optimizacion.md, «Planificador por turnos»): fisica a 12,5 Hz y motores aparte */
 #define PHYS_DT     5243L        /* 1/12,5 s en Q16 */
 #define PHYS_HZ     12           /* (solo aproximado: el reloj del simulador se cuenta con los 50 Hz) */
 #endif

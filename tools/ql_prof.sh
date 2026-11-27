@@ -29,7 +29,7 @@ for s in ql68k qdos68k; do qcc -c $D/src/$s.s -o $D/$s.o || exit 1; OBJS="$OBJS 
 rm -f $D/prof.win
 printf '100 REMark QFS perfil\n110 D$ = "win1_"\n120 MODE 4\n130 EXEC_W win1_qfs\n' > $D/boot
 ( echo "wr $D/boot boot"; echo "wr $D/qfs qfs"; echo "wr build/iberia.scn iberia_scn"; echo "wr data/mono.acf mono_acf"; echo "wr data/reactor.acf reactor_acf"; echo quit ) | qxltool -w $D/prof.win 4 QFS > /dev/null || exit 1
-printf 'SYSROM = %s\nIPC_ROM = Hermes2_20_rom\nROMDIR = %s\nRAMTOP = %s\nSPEED = %s\nDEVICE = WIN1,%s/%s/prof.win,qdos-native\nBOOT_DEVICE = win1\nSKIP_BOOT = 1\nCPU_HOG = 1\nSOUND = 0\nHW_TRACE = %s\n' "${SYSROM:-MIN198.rom}" "${ROMDIR:-$HOME/src/sQLux/build/roms}" "${RAMTOP:-768}" 1.0 "$R" "$D" "${HW_TRACE:-0}" > $D/prof.ini
+printf 'SYSROM = %s\nIPC_ROM = Hermes2_20_rom\nROMDIR = %s\nRAMTOP = %s\nSPEED = %s\nDEVICE = WIN1,%s/%s/prof.win,qdos-native\nBOOT_DEVICE = win1\nSKIP_BOOT = 1\nCPU_HOG = 1\nSOUND = 0\nHW_TRACE = %s\n' "${SYSROM:-MIN198.rom}" "${ROMDIR:-$HOME/src/sQLux/build/roms}" "${RAMTOP:-768}" ${SPEEDV:-1.0} "$R" "$D" "${HW_TRACE:-0}" > $D/prof.ini
 fi
 [ -n "$BUILD_ONLY" ] && exit 0
 # la biblioteca de C (todo lo enlazado detras de qdos68k.o) se apunta a quien la llama (productos, divisiones...)

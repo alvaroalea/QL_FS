@@ -187,7 +187,7 @@ static u8 pfront[MAXV];                      /* 1 si el vertice esta delante del
 typedef char chk_c_x[(FOFF(Camera, x) == 0 && FOFF(Camera, y) == 4 && FOFF(Camera, z) == 8) ? 1 : -1];
 typedef char chk_c_m[(FOFF(Camera, m) == 18 && FOFF(Camera, fx) == 36 && FOFF(Camera, fy) == 38) ? 1 : -1];
 typedef char chk_o_t[(FOFF(Obj, type) == 0 && FOFF(Obj, ox) == 4 && FOFF(Obj, oy) == 8) ? 1 : -1];
-typedef char chk_o_z[(FOFF(Obj, oz) == 12 && FOFF(Obj, radius) == 14 && OBJ_SOLID == 2 && MIN_PX == 1) ? 1 : -1];
+typedef char chk_o_z[(FOFF(Obj, oz) == 12 && FOFF(Obj, radius) == 14 && FOFF(Obj, vrad) == 16 && OBJ_SOLID == 2 && MIN_PX == 1) ? 1 : -1];
 #endif
 typedef char chk_view_cx[(VIEW_CX == 256) ? 1 : -1];     /* proj_all (ql68k.s) lleva 256 y 48 escritos */
 typedef char chk_view_cy[(VIEW_CY == 48) ? 1 : -1];
@@ -340,7 +340,7 @@ int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy_, s32 *out, 
 }
 #endif
 
-int view_wire;                                /* 1 = solo alambre (sin relleno ni orden de caras): estudio de rendimiento, doc/interrupciones.md */
+int view_wire;                                /* 1 = solo alambre (sin relleno ni orden de caras): estudio de rendimiento, doc/optimizacion.md, «Planificador por turnos» */
 
 /* rellena y contornea una cara ya proyectada (m vertices en p) */
 static void paint_face(Surface *s, int a, const s32 *p, int m)
@@ -432,7 +432,7 @@ static int xform_pre(const Camera *c, const Obj *o, s32 dmax, s32 *res)
      * transformar el resto */
     {
         s16 c3[3];
-        s32 cv[3], r = ((((s32)o->radius << 3) + o->radius) >> U) + 8, z2;       /* radio*9 sin multiplicar */
+        s32 cv[3], r = ((((s32)o->vrad << 3) + o->vrad) >> U) + 8, z2;       /* radio de vision*9 sin multiplicar */
         c3[0] = rx; c3[1] = ry; c3[2] = rz;
         xform3(c->m, c3, cv, 1);
         z2 = cv[2] + r;
@@ -590,7 +590,7 @@ static int gather_tile(const Tile *t, const Camera *c, int ni, s32 cx, s32 cy, s
         if (above && o->type != OBJ_SOLID) continue;
         /* detras de la camara (con el radio de margen): ni se transforma ni entra en la lista que se ordena */
         if (BEHIND_CULL && (MULS16((o->ox - cx) >> 3, m6) + MULS16((o->oy - cy) >> 3, m7) +
-             MULS16((o->oz - cz) >> 3, m8)) >> 14 < -(((s32)o->radius >> 3) + 16)) continue;
+             MULS16((o->oz - cz) >> 3, m8)) >> 14 < -(((s32)o->vrad >> 3) + 16)) continue;
         if (ni >= MAXITEMS) break;
         it->o = o;
         if (o->type == OBJ_GROUND) it->key = 0x40000000L + ((s32)o->radius << 8);

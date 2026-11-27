@@ -18,7 +18,7 @@ ASMOBJ  = src/qdos68k.o
 else
 ASMOBJ  = src/ql68k.o src/qdos68k.o
 endif
-# SCHED=1 (por omision): fisica a 12,5 Hz dentro de la interrupcion de 50 Hz y el resto por turnos (doc/interrupciones.md);
+# SCHED=1 (por omision): fisica a 12,5 Hz dentro de la interrupcion de 50 Hz y el resto por turnos (doc/optimizacion.md, «Planificador por turnos»);
 # make SCHED=0: el bucle de siempre (cuadros seguidos, fisica a 25 Hz por recuperacion de tiempo)
 SCHED ?= 1
 ifeq ($(SCHED),1)

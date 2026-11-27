@@ -1,4 +1,4 @@
-/* bench.c - estudio de las interrupciones de 50 Hz (doc/interrupciones.md). Solo con -DQFS_PROF -DBENCH_MODE=n; ver tools/ql_bench.sh.
+/* bench.c - estudio de las interrupciones de 50 Hz (doc/optimizacion.md, «Planificador por turnos»). Solo con -DQFS_PROF -DBENCH_MODE=n; ver tools/ql_bench.sh.
  *   BENCH_MODE 1  coste de cada tarea (fisica, teclado, trozos del panel, vista solida y de alambre): marcas por llamada
  *   BENCH_MODE 2  perfil por funcion de 4 cuadros de alambre        BENCH_MODE 3  igual de la vista solida
  *   BENCH_MODE 4  perfil de 100 pasos de fisica                      BENCH_MODE 5  perfil del panel entero (x4)
@@ -32,6 +32,7 @@ static void pinfo(void)
     bpi.status = sim.status;
     bpi.fps10 = -2;
     bpi.lps10 = 0;
+    bpi.pps10 = 0;
 }
 
 static void rep(int id, int what, long v)       /* 6 marcas: 250, id, que, y el valor en 4 bytes */
@@ -82,6 +83,8 @@ static void costs(void)
     for (i = 0; i < 8; i++) { BEG(48); flight_engines(&sim.f); FIN(48); }
 #endif
     for (i = 0; i < 4; i++) { BEG(14); nav_update(&sim.r, &sim.w, &sim.f); FIN(14); }
+    for (k = 0; k < NAV_PARTS; k++) for (i = 0; i < 4; i++) { BEG(50 + 2 * k); nav_part(&sim.r, &sim.w, &sim.f, k); FIN(50 + 2 * k); }
+    for (i = 0; i < 4; i++) { BEG(60); atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 0); FIN(60); }
     for (i = 0; i < 4; i++) { BEG(16); scan_row(1); FIN(16); }
     for (i = 0; i < 4; i++) { BEG(18); read_keys(0); FIN(18); }
     for (i = 0; i < 2; i++) { BEG(20); read_keys(1); FIN(20); }

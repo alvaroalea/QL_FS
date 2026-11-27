@@ -1,5 +1,5 @@
 #!/bin/bash
-# Banco de pruebas de interrupciones en sQLux (doc/interrupciones.md):  tools/ql_bench.sh <modo> <salida> [escena] [banderas extra de qcc]
+# Banco de pruebas de interrupciones en sQLux (doc/optimizacion.md, «Planificador por turnos»):  tools/ql_bench.sh <modo> <salida> [escena] [banderas extra de qcc]
 #   modo: BENCH_MODE de src/bench.c (1 costes, 2..5 perfiles, 6 unidades de la vista, 10 planificador con -DB_PAT=\"FNNNFNNN\" -DB_RUN=1000)
 #   salida: prefijo; deja <salida>.perfil (marcas y perfil crudo) y <salida>.txt (informe por funcion)
 R=$(cd "$(dirname "$0")/.." && pwd); cd "$R"

@@ -44,7 +44,7 @@ ROWS = [
            key("−", "vista", ["Zoom:", "aleja"]), key("=", "vista", ["Zoom:", "acerca"]),
            key("£"), key("\\", "sim", ["Indicador", "de cuadros", "por segundo"])]),
     (0.0, [key("TAB", "sim", ["Pausa"], w=1.4),
-           key("Q"), key("W"),
+           key("Q", "vista", ["Mapa", "sí / no"]), key("W"),
            key("E", "motor", ["Arranque", "(mantener)"], menu=["Cambia de", "escenario"]),
            key("R", "sim", ["Reinicia en", "el siguiente", "aeropuerto"], ["anterior"]),
            key("T", "sim", ["Hora", "+1 h"], ["−1 h"], menu=["Hora de", "salida"]),
@@ -64,8 +64,8 @@ ROWS = [
            key("J"),
            key("K", "radio", ["Llamar a", "la torre"]),
            key("L", None, menu=["Cargar", "partida"]),
-           key(";"), key("'"), key("#"),
-           key("ENTER", "sim", ["Reinicia tras", "un choque"], menu=["Empezar", "el vuelo"], w=1.4)]),
+           key(";"), key("'"),
+           key("ENTER", "sim", ["Reinicia tras", "un choque"], menu=["Empezar", "el vuelo"], w=1.0)]),
     (0.0, [key("MAYÚS", "sim", ["Invierte la", "función: la", "que va entre", "paréntesis"], w=1.9),
            key("Z", "vuelo", ["Timón a la", "izquierda"]),
            key("X", "vuelo", ["Timón a la", "derecha"]),
@@ -79,10 +79,12 @@ ROWS = [
            key("/"),
            key("MAYÚS", "sim", ["Invierte la", "función"], w=1.5)]),
 ]
-BOTTOM = [key("CTRL", None, w=1.4), key("ALT", None, w=1.4),
-          key("ESPACIO", "vuelo", ["Centra alerones,", "timón y profundidad"], w=6.3)]
-CURS = [key("←", "vuelo", ["Alabeo a", "la izquierda"]), key("↑", "vuelo", ["Morro", "abajo"]),
-        key("↓", "vuelo", ["Morro", "arriba"]), key("→", "vuelo", ["Alabeo a", "la derecha"])]
+# fila inferior, como en el QL: CTRL, izquierda, derecha, espacio, arriba, abajo, ALT (13,4 anchos: el borde de ALT cuadra con el de MAYÚS derecho)
+BOTTOM = [key("CTRL", None, w=1.4),
+          key("←", "vuelo", ["Alabeo a", "la izquierda"]), key("→", "vuelo", ["Alabeo a", "la derecha"]),
+          key("ESPACIO", "vuelo", ["Centra alerones,", "timón y profundidad"], w=6.6),
+          key("↑", "vuelo", ["Morro", "abajo"]), key("↓", "vuelo", ["Morro", "arriba"]),
+          key("ALT", None, w=1.4)]
 FKEYS = [key("F1", "motor", ["Gas al", "ralentí"]), key("F2", "motor", ["Menos", "gas"]),
          key("F3", "motor", ["Más", "gas"]), key("F4", "motor", ["Gas a", "fondo"]), key("F5")]
 
@@ -152,7 +154,7 @@ def main():
     c.setFont("Helvetica-Oblique", 6.5)
     c.setFillColor(HexColor("#555555"))
     for i, k in enumerate(FKEYS):
-        draw_key(c, fx, top - kh - i * (kh * 0.84 + gap), u, kh * 0.84, k)
+        draw_key(c, fx, top - kh - i * (kh + gap), u, kh, k)
     for r, (off, row) in enumerate(ROWS):
         x = mx + off
         y = top - kh - r * (kh + gap)
@@ -160,17 +162,13 @@ def main():
             w = u * k["w"] + gap * (k["w"] - 1)
             draw_key(c, x, y, w, kh, k)
             x += w + gap
-    # fila inferior: CTRL, ALT, espacio y cursores
+    # fila inferior
     y = top - kh - 4 * (kh + gap)
     x = mx
     for k in BOTTOM:
         w = u * k["w"] + gap * (k["w"] - 1)
         draw_key(c, x, y, w, kh, k)
         x += w + gap
-    x += 6 * mm
-    for k in CURS:
-        draw_key(c, x, y, u, kh, k)
-        x += u + gap
     # leyenda de colores
     ly = y - 9 * mm
     lx = 14 * mm
@@ -188,7 +186,7 @@ def main():
     c.setFillColor(HexColor("#555555"))
     c.setFont("Helvetica", 7)
     c.drawString(14 * mm, ly - 8 * mm,
-                 "Las teclas de F1 a F5 están en el lateral izquierdo del QL; los cursores, a la derecha de la barra espaciadora. "
+                 "Las teclas de F1 a F5 están en el lateral izquierdo del QL; los cursores, a ambos lados de la barra espaciadora. "
                  "El teclado se lee a la vez: puedes pulsar varias.")
     c.drawString(14 * mm, ly - 12.5 * mm,
                  "En el menú inicial T cambia la hora y, con MAYÚS, A, S y D recorren las opciones hacia atrás.")

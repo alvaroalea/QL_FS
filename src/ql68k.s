@@ -2082,7 +2082,7 @@ xo_chk: dbra    d7,xo_loop
 ;   envolvente contra la piramide de vision y por tamano (solidos de menos de un pixel). Devuelve 0 si el objeto no se
 ;   dibuja; si no, res[0] = U y res[1..3] = rx, ry, rz (16 bits con signo, en 4 bytes).
 ;   Lee Camera y Obj por desplazamientos (view3d.c los comprueba en compilacion):
-;     Camera: x 0, y 4, z 8, m 18..35, fx 36, fy 38      Obj: type 0, ox 4, oy 8, oz 12 (s16), radius 14 (u16)
+;     Camera: x 0, y 4, z 8, m 18..35, fx 36, fy 38      Obj: type 0, ox 4, oy 8, oz 12 (s16), radius 14 (u16), vrad 16 (u16)
 ;   Las multiplicaciones por fx, fy son 32x16 exactas (xp_mul); las de 240 y 48 (VIEW_W/2, VIEW_H/2), desplazamientos.
         .globl  _xform_pre
 _xform_pre:
@@ -2176,7 +2176,7 @@ xp_5:   move.l  d6,d7
         asr.l   #7,d5
         asr.l   #7,d5
         moveq   #0,d6
-        move.w  14(a1),d6               ; r = ((radio*9) >> U) + 8
+        move.w  16(a1),d6               ; r = ((radio de vision*9) >> U) + 8
         move.l  d6,d7
         asl.l   #3,d6
         add.l   d7,d6

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analiza el perfil de sQLux de src/bench.c (marcas, ver doc/interrupciones.md). Uso: bench_parse.py perfil.txt
+"""Analiza el perfil de sQLux de src/bench.c (marcas, ver doc/optimizacion.md, «Planificador por turnos»). Uso: bench_parse.py perfil.txt
 Modo 1: pares de marcas (id par = inicio, id+1 = fin) -> ms por llamada.  Modo 10: informe del planificador."""
 import sys
 HZ = 7.5e6
@@ -11,7 +11,8 @@ names = {10:'fisica (controls_step+flight_step)', 12:'nav_update+atc_update', 14
          18:'teclado: read_keys(0) = 3 filas', 20:'teclado: read_keys(1) = 8 filas', 40:'controls_frame', 42:'snd_update', 44:'build_status',
          22:'panel 0 horizonte', 24:'panel 1 velocidad+altitud', 26:'panel 2 variometro+rumbo', 28:'panel 3 viraje+rpm+CDI',
          30:'panel 4 radios+motor', 32:'panel 5 mensajes+FPS', 36:'vista SOLIDA completa (sin volcado en bandas)', 38:'vista ALAMBRE completa (trozos sin parar)',
-         46:'vista SOLIDA completa en trozos', 48:'flight_engines (motores)'}
+         46:'vista SOLIDA completa en trozos', 48:'flight_engines (motores)',
+         50:'nav parte 0 (NAV1)', 52:'nav parte 1 (NAV2)', 54:'nav parte 2 (ADF)', 56:'nav parte 3 (balizas, 1a mitad)', 58:'nav parte 4 (balizas, 2a mitad)', 60:'atc_update'}
 # modo 1
 st = {}; i = 0; rep = []; tk = {}; pu = []; sub = {}
 while i < len(marks):

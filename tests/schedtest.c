@@ -30,7 +30,7 @@ int main(void)
     printf("pasos de fisica: %lu en 60 s = %.2f/s;  reloj +%lu s;  IAS %ld kt  AGL %ld m  %s\n", (unsigned long)(sim.nsteps - n0),
            (sim.nsteps - n0) / 60.0, (unsigned long)(sim.clock - 12 * 3600UL), (long)(sim.f.ias / 65536.0 * 1.9438), (long)(sim.f.agl >> 16),
            sim.f.on_ground ? "EN SUELO" : "EN EL AIRE");
-    printf("vistas completas %d, vueltas del panel por la cola de turnos ok\n", sim.fps_v);
+    printf("vistas completas %d, vueltas del panel %d\n", sim.fps_v, sim.fps_p);
     host_dump("build/shots/sched.scr");
     sim_stop();
     return 0;

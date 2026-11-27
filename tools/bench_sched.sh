@@ -1,5 +1,5 @@
 #!/bin/bash
-# Lanza los experimentos del planificador por turnos (doc/interrupciones.md): compila uno a uno (qcc usa ficheros temporales
+# Lanza los experimentos del planificador por turnos (doc/optimizacion.md, «Planificador por turnos»): compila uno a uno (qcc usa ficheros temporales
 # comunes, no admite compilaciones en paralelo) y ejecuta de 3 en 3 en sQLux.
 #   tools/bench_sched.sh <directorio de salida> id:patron:isr[:banderas] ...      (RUN = turnos de 20 ms que dura cada prueba)
 OUTD=$1; shift; mkdir -p $OUTD

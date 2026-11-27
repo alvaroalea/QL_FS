@@ -78,7 +78,7 @@ _plat_timer_off:
         rts
 
 ; se ejecuta 50 veces por segundo en modo supervisor. Si _plat_isr_fn no es nulo, tambien llama a esa funcion en C (sin parametros),
-; con todos los registros salvados y una pila propia (_plat_isr_sp): enganche de tareas a la interrupcion (doc/interrupciones.md)
+; con todos los registros salvados y una pila propia (_plat_isr_sp): enganche de tareas a la interrupcion (doc/optimizacion.md, «Planificador por turnos»)
 tm_poll:
         addq.l  #1,_plat_tickcnt
         tst.l   _plat_isr_fn
