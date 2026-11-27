@@ -28,7 +28,7 @@ CFLAGS  = -O -Isrc -DPLAT_QL $(ASMDEFS)
 
 SRC     = src/main_ql.c src/sim.c src/fixmath.c src/tables.c src/gfx.c \
           src/world.c src/view3d.c src/aircraft.c src/flight.c src/nav.c \
-          src/atc.c src/util.c src/panel.c src/sound.c src/platform_ql.c src/ql_envsetup.c
+          src/atc.c src/util.c src/panel.c src/map.c src/sound.c src/platform_ql.c src/ql_envsetup.c
 OBJ     = $(SRC:.c=.o) $(ASMOBJ)
 
 build/qfs: $(OBJ)

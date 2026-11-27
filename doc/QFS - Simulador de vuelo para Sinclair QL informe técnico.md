@@ -139,7 +139,7 @@ Otras órdenes: `NDB`, `TORRE`, `HANGAR`, `EDIFICIO`, `CARRETERA`, `RIO`, `LAGO`
 | Aeropuertos | 120 B cada uno | OACI, nombre, posición, frecuencias ATIS/TWR, 4 cabeceras, texto ATIS |
 | Teselas | variable | objetos de 20 B de cabecera + vértices s16 + caras `[n, atributo, índices]` |
 
-Tipos de objeto: suelo (pistas, lagos, campos), polilíneas (carreteras, ríos), sólidos con ocultación y orden de caras (edificios, montañas) y luces. Banderas: colisión, agua (SPLASH!), visible de noche, montaña, ordenar caras. En el QL los vértices se usan en su sitio, sin copiarlos.
+Tipos de objeto: suelo (pistas, lagos, campos), polilíneas (carreteras, ríos), sólidos con ocultación y orden de caras (edificios, montañas) y luces. Banderas: colisión, agua (SPLASH!), visible de noche, montaña, ordenar caras. En el QL los vértices se usan en su sitio, sin copiarlos. Las luces rectas de paso constante (bordes de pista, aproximación, calles de rodaje y de ciudad) se guardan como filas (bandera `OF_ROWS`: dos vértices y el número de luces; el motor interpola al dibujar), y los sólidos llevan una versión lejana de solo techos (`nvf`, `nff` en la cabecera de 22 bytes del objeto). Detalles y medidas en `doc/optimizacion.md`.
 
 **Avión `.ACF`** — texto `CLAVE = valor`, decimales sin coma flotante:
 
@@ -221,7 +221,7 @@ El teclado se lee con KEYROW, así que se pueden pulsar varias teclas a la vez. 
 | \[ / \] | Compensador |
 | F1 / F2 / F3 / F4 | Gas: cortar / menos / más / a fondo |
 | M / Mayús+M | Mezcla: empobrecer / enriquecer (a cero para el motor) |
-| P / Mayús+P | Paso de hélice (RPM del regulador) |
+| P / Mayús+P | Paso de pala: fino (más RPM y empuje a baja velocidad) / grueso (menos RPM, mejor rendimiento en crucero) |
 | E | Arranque |
 | F / Mayús+F | Flaps: bajar / subir un punto |
 | G | Tren |

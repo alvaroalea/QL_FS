@@ -18,7 +18,7 @@ rm -f $D/src/* $D/*.o $D/perfil.txt $D/qfs.MAP
 [ -f build/iberia.scn ] || make -f Makefile.pc datos >/dev/null
 for f in src/*.c src/*.h src/*.s; do sed -e '/^static .*(/ s/^static //' "$f" > $D/src/$(basename "$f"); done
 OBJS=""
-for s in main_ql sim fixmath tables gfx world view3d aircraft flight nav atc util panel sound platform_ql ql_envsetup prof $([ -f src/bench.c ] && echo bench); do
+for s in main_ql sim fixmath tables gfx world view3d aircraft flight nav atc util panel map sound platform_ql ql_envsetup prof $([ -f src/bench.c ] && echo bench); do
   out=$(qcc -O -DPLAT_QL -DQFS_PROF -DPROF_SCENE=$SCENE -DUSE_ASM_FXMUL -DUSE_ASM_FXDIV -DUSE_ASM_GFX -DUSE_ASM_XFORM -DUSE_ASM_MDQ -DUSE_ASM_3D -DUSE_ASM_POLY -DUSE_ASM_XOBJ $PROFFLAGS -I$D/src -c $D/src/$s.c -o $D/$s.o 2>&1)
   [ -n "$out" ] && echo "$out"
   echo "$out" | grep -qi "error" && exit 1

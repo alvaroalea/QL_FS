@@ -98,7 +98,7 @@ Al arrancar aparece el menú de salida. Todo se maneja con el teclado y se actua
 | **T** / **Mayús+T** | Hora de salida: sube o baja una hora. Por defecto, las 12:00. |
 | **E** | Escenario: alterna entre «Península Ibérica» (por defecto) y «Valle del QL (demo)». |
 | **A** / **Mayús+A** | Aeropuerto de salida. |
-| **S** / **Mayús+S** | Tipo de salida: «Continuar vuelo» (solo al volver de un vuelo, y es la opción que queda elegida), en pista, en plataforma (la primera plataforma definida en el escenario; si no la tiene, junto a la pista), en vuelo (al azar, al 33 % del techo) o aterrizando. |
+| **S** / **Mayús+S** | Tipo de salida: «Continuar vuelo» (solo al volver de un vuelo, y es la opción que queda elegida; si cambias de avión con 1-4, el vuelo continúa con el avión nuevo, en la misma posición y actitud), en pista, en plataforma (la primera plataforma definida en el escenario; si no la tiene, junto a la pista), en vuelo (al azar, al 33 % del techo) o aterrizando. |
 | **D** / **Mayús+D** | En pista: cabecera. Aterrizando: punto de la senda de 3° hacia la pista (a 20 NM, IF a 10 NM, FAF a 5 NM y «en corta final», a 1,5 NM) y, al acabar los de una pista, la siguiente cabecera. El avión sale a velocidad de planeo, con tren y flaps arriba. |
 | **G** | Guarda el vuelo en curso en el disco (`PARTIDA_SAV`). Solo hay vuelo que guardar si se ha vuelto al menú desde uno. |
 | **L** | Carga la partida guardada y sigue volando desde ella. El fichero solo vale en la misma máquina y versión. |
@@ -164,7 +164,7 @@ Al pulsar ENTER se pasa a la cabina. La pantalla se divide en la vista exterior 
 | 8 | CDI / ILS | Desviación lateral (barra vertical) y de senda (barra verde horizontal); indica `LOC` o `OBS`, y `TO`, `FR` u `OFF`. |
 | 9 | Radios | COM1, NAV1, NAV2, ADF, DME, transpondedor y la hora. |
 | 10 | Palancas | Barras **T**: gas, **P**: paso de hélice, **M**: mezcla y **F**: flaps. En los bimotores, T, P y M son dos barras finas (motor izquierdo y derecho). |
-| 11 | Motor y tren | Luces del tren, MAP, EGT, combustible (COMB), balizas (O M I) y aviso `PARADO`. |
+| 11 | Motor y tren | Luces del tren, MAP, EGT, combustible (FUEL), balizas (O M I) y aviso `PARADO`. |
 | 12 | Mensajes de la torre | Texto del ATIS y del control, que se desplaza. |
 | 13 | Línea de estado | Vista, avión, aeropuerto de salida, flaps y avisos. |
 | 14 | Vista exterior | La escena 3D: cabina, persecución, torre o lateral. |
@@ -189,6 +189,7 @@ Las opciones del menú no se cambian en vuelo, pero sí estas:
 |:----------------|:-----------------------------------------------|
 | **TAB** | Pausa. |
 | **V** | Cambia de vista: cabina, persecución, torre, lateral. En las vistas exteriores el tren de los aviones retráctiles desaparece del dibujo cuando está recogido del todo. |
+| **Q** | Mapa: el escenario visto desde arriba, norte arriba, a pantalla completa y con el avión en el centro. Marca NDB (círculo pequeño), VOR (círculo grande con un radio al norte), ILS (con su rumbo de aproximación) y aeropuertos (pistas, TWR y ATIS), con nombre, frecuencia y morse. El vuelo sigue de fondo; el mapa no se actualiza solo: se dibuja al abrirlo y al cambiar la escala con **+** / **-**. **Q** vuelve a la cabina. |
 | **T** / **Mayús+T** | Hora +1 h / −1 h. |
 | **R** / **Mayús+R** | Reinicia el vuelo en la cabecera del siguiente / anterior aeropuerto. |
 | **ENTER** | Tras un choque, reinicia el vuelo. |
@@ -304,7 +305,7 @@ Un bimotor ligero con hélices de velocidad constante y tren retráctil. Es más
 | Subida (medida) | ≈ 2500 ft/min a 135 kt |
 | Techo | 6000 m (19 700 ft) |
 
-**Cómo se comporta.** Los mandos de gas, mezcla y paso actúan sobre los dos motores a la vez. Con paso variable, la hélice mantiene las RPM que pides con la palanca **P**: paso fino (RPM altas) para despegar y aterrizar, y paso más grueso en crucero. Sube el tren tras despegar y bájalo antes de aterrizar: con el tren arriba es un choque.
+**Cómo se comporta.** Los mandos de gas, mezcla y paso actúan sobre los dos motores a la vez. La palanca **P** es el paso de la pala. Con paso fino (barra vacía) la hélice carga poco el motor: RPM altas y máximo empuje a baja velocidad, para despegar y aterrizar, pero rinde mal rápido. Al engrosar el paso (**Mayús+P**) las RPM bajan, el motor consume menos y la hélice rinde más en crucero. Las RPM también dependen del gas y de la mezcla: el paso solo pone el tope. Sube el tren tras despegar y bájalo antes de aterrizar: con el tren arriba es un choque.
 
 \newpage
 
@@ -360,8 +361,8 @@ El teclado se lee a la vez: puedes pulsar varias teclas simultáneamente (por ej
 | **F3** | Más gas, gradualmente. |
 | **F4** | Gas a fondo. |
 | **M** / **Mayús+M** | Mezcla: empobrecer / enriquecer. A cero, el motor se para. |
-| **P** / **Mayús+P** | Paso de la hélice (solo bimotor): RPM menos / más. |
-| **E** | Arranque: mantenla pulsada (con mezcla > 5 % y combustible) para encender un motor parado. |
+| **P** / **Mayús+P** | Paso de la hélice (solo bimotor): más fino (más RPM, más empuje al despegue) / más grueso (menos RPM, mejor en crucero). |
+| **E** | Arranque: mantenla pulsada (con mezcla > 5 % y combustible) para encender un motor parado. **Mayús+E** para el motor (en plataforma se sale con el motor parado). |
 
 ### Configuración del avión
 
@@ -371,6 +372,7 @@ El teclado se lee a la vez: puedes pulsar varias teclas simultáneamente (por ej
 | **Mayús+F** | Un punto más de flaps (o abre los aerofrenos). |
 | **G** | Sube o baja el tren (solo en aviones de tren retráctil). |
 | **.** (punto) | Frenos de las ruedas, mientras se mantiene pulsada. |
+| **Mayús+.** | Pone o quita el freno de estacionamiento (se sale de pista y de plataforma con él puesto). **BRK** en rojo en el panel, a la derecha de GEAR, con cualquiera de los dos frenos. |
 
 ### Vistas
 
@@ -574,7 +576,7 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 
 | | | |
 |:-:|:------------------|:-----------------------------|
-| □ | Combustible | COMB ≈ 200 L |
+| □ | Combustible | FUEL ≈ 200 L |
 | □ | Mezcla | Al máximo (barra **M** llena: **Mayús+M**) |
 | □ | Gas | **F1**: ralentí, ≈ 650 rpm |
 | □ | Flaps | 10°: **F** una vez |
@@ -583,14 +585,14 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 | □ | Altímetro | Comprueba la elevación del campo |
 | □ | Radios | COM1 en la torre; NAV1 en el ILS |
 | □ | ATIS | Escucha pista y viento |
-| □ | Frenos | **.** (punto) mientras esperas |
+| □ | Frenos | Freno de estacionamiento (**Mayús+.**) mientras esperas |
 
 ### Despegar
 
 | | | |
 |:-:|:------------------|:-----------------------------|
 | □ | Torre | **K**: «CLEARED FOR TAKEOFF» |
-| □ | Frenos | Suelta **.** (punto) |
+| □ | Frenos | Quita el de estacionamiento con **Mayús+.**: el **BRK** rojo se apaga |
 | □ | Gas | **F4**: a fondo |
 | □ | Eje de la pista | **←** y **→** |
 | □ | Rotación | 55 kt: **↓** suave, 8–10° |
@@ -606,7 +608,7 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 | □ | Potencia | **F2**: RPM bajo el trazo rojo (< 2700) |
 | □ | Mezcla | Rica (barra llena) |
 | □ | Velocidad | ≈ 110 kt, dentro del arco verde (48–128 kt) |
-| □ | Combustible | Vigila COMB |
+| □ | Combustible | Vigila FUEL |
 | □ | Navegación | VOR/ADF/DME; rumbo con el indicador (6) |
 
 \newpage
@@ -650,7 +652,7 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 |:-:|:------------------|:-----------------------------|
 | □ | Motor parado | Baja el morro: 70 kt (mejor planeo) |
 | □ | Reencender | Mezcla rica (**Mayús+M**), gas medio, **E** pulsada |
-| □ | Sin combustible | COMB en rojo: aterriza en cuanto puedas |
+| □ | Sin combustible | FUEL en rojo: aterriza en cuanto puedas |
 | □ | Pérdida (`PERDIDA!`) | **↑** baja el morro, gas a fondo, alas niveladas |
 | □ | Exceso de velocidad | Gas a ralentí, sube el morro (VNE 160 kt) |
 | □ | Frustrada | **F4**, morro a 8°, flaps 10° |
@@ -663,9 +665,9 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 
 | | | |
 |:-:|:------------------|:-----------------------------|
-| □ | Combustible | COMB ≈ 520 L |
+| □ | Combustible | FUEL ≈ 520 L |
 | □ | Mezcla | Al máximo (barra **M** llena) |
-| □ | Paso de hélice | Al máximo: **Mayús+P** (barra **P** llena) |
+| □ | Paso de hélice | Fino: **P** (barra **P** vacía) |
 | □ | Gas | **F1**: ralentí, ≈ 650 rpm los dos |
 | □ | Tren | Abajo y bloqueado: 3 luces verdes |
 | □ | Flaps | 15°: **F** una vez |
@@ -693,10 +695,10 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 |:-:|:------------------|:-----------------------------|
 | □ | Altitud | Nivela y compensa |
 | □ | Potencia | **F2**: ~75 % |
-| □ | Paso de hélice | **P**: RPM de crucero, bajo la raya roja |
+| □ | Paso de hélice | **Mayús+P**: paso medio, RPM de crucero bajo la raya roja |
 | □ | Mezcla | Rica; empobrece **M** para ahorrar |
 | □ | Velocidad | Dentro del arco verde (80–195 kt) |
-| □ | Combustible | Vigila COMB (3,5 h a plena potencia) |
+| □ | Combustible | Vigila FUEL (3,5 h a plena potencia) |
 | □ | Tren | Arriba |
 
 \newpage
@@ -708,7 +710,7 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 | □ | ATIS y torre | **C** → ATIS; **K** a menos de 25 km |
 | □ | Descenso | Gas bajo, 140 kt hasta el circuito |
 | □ | Mezcla | Rica |
-| □ | Paso de hélice | Al máximo (**Mayús+P**) |
+| □ | Paso de hélice | Fino (**P**) |
 | □ | Flaps | 15° a ≤ 120 kt: **F** |
 | □ | Tren | **G**: abajo, 3 luces verdes (≤ 120 kt) |
 | □ | Final | 95 kt, flaps 15° |
@@ -740,8 +742,8 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 | | | |
 |:-:|:------------------|:-----------------------------|
 | □ | Motores parados | Morro abajo: 100 kt, tren arriba |
-| □ | Reencender | Mezcla rica, paso al máximo, **E** pulsada |
-| □ | Sin combustible | COMB en rojo: aterriza ya |
+| □ | Reencender | Mezcla rica, paso fino, **E** pulsada |
+| □ | Sin combustible | FUEL en rojo: aterriza ya |
 | □ | Tren sin bajar | `TREN!` en rojo: **G** y comprueba 3 luces verdes |
 | □ | Pérdida (`PERDIDA!`) | **↑**, gas a fondo, alas niveladas |
 | □ | Exceso de velocidad | Gas a ralentí, sube el morro (VNE 225 kt) |
@@ -757,7 +759,7 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 
 | | | |
 |:-:|:------------------|:-----------------------------|
-| □ | Combustible | COMB ≈ 3000 L |
+| □ | Combustible | FUEL ≈ 3000 L |
 | □ | Palanca de corte | **Mayús+M**: abierta (barra **M** llena) |
 | □ | Motores | N1 ≈ 22 % los dos, sin `PARADO` |
 | □ | Gas | **F1**: ralentí |
@@ -789,7 +791,7 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 | □ | Potencia | **F2**: N1 por debajo del 100 % |
 | □ | Velocidad | IAS por debajo de VNO (300 kt) |
 | □ | EGT y FF | Dentro de lo normal; vigila FF |
-| □ | Combustible | COMB; ≈ 2 h a plena potencia |
+| □ | Combustible | FUEL; ≈ 2 h a plena potencia |
 | □ | Navegación | VOR/ADF/DME; rumbo con el indicador (6) |
 | □ | Tren | Arriba |
 
@@ -834,7 +836,7 @@ El planeador empieza ya en el aire, a unos 58 kt y 600 m de altura, a 4 km de la
 |:-:|:------------------|:-----------------------------|
 | □ | Motores parados | Morro abajo: 140 kt, tren arriba |
 | □ | Reencender | Palanca de corte abierta (**Mayús+M**), **E** pulsada |
-| □ | Sin combustible | COMB en rojo: aterriza ya |
+| □ | Sin combustible | FUEL en rojo: aterriza ya |
 | □ | Tren sin bajar | `TREN!` en rojo: **G** y comprueba 3 luces verdes |
 | □ | Pérdida (`PERDIDA!`) | **↑**, gas a fondo, alas niveladas |
 | □ | Exceso de velocidad | Gas a ralentí, sube el morro (VNE 330 kt) |

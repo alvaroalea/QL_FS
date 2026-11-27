@@ -50,6 +50,7 @@ typedef struct {
     int crash_shown;
     u32 frames;
     int vpart;                       /* 0: el proximo cuadro empieza la vista 3D; 1: la termina */
+    int map, map_req, map_lvl, map_redraw;       /* vista de mapa (tecla Q): abierta, peticion de abrir/cerrar, escala y repintado pendiente */
     int show_fps, fps_n, fps_v, fps10, lps10;     /* indicador de FPS (tecla \): vistas y cuadros de simulacion por segundo x10 */
     u32 fps_t0;
 } Sim;

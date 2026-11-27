@@ -34,7 +34,7 @@ void flight_init(Flight *f, const AircraftDef *ac)
     f->hk_last = -1;
     f->eng_n = 0;
     for (i = 0; i < 2; i++) {
-        f->mix[i] = FX_ONE; f->prop[i] = FX_ONE;
+        f->mix[i] = FX_ONE; f->prop[i] = 0;      /* paso fino */
         f->e[i].running = (ac->eng_type != ENG_NONE && i < ac->n_eng);
         f->e[i].rpm = ac->rpm_idle;
         f->e[i].n1 = FXF(22, 100);
@@ -67,6 +67,7 @@ static void engines_step(Flight *f, s32 *t_left, s32 *t_right, s32 dt)
         if (f->fuel <= 0) e->running = 0;
         if (a->eng_type == ENG_PISTON) {
             s32 r, mf, pf, pfs, rpm_t, eta, pw, gov;
+            int k;
             r = fxdiv(f->mix[i], f->sigma);              /* mezcla relativa */
             mf = fxlerp_tab(mix_tab, 13, r << 2);
             mf = MIN(fxmul(mf, 67563L), FX_ONE);   /* mf / 63570 en Q16 (65536*65536/63570) */         /* normalizada: con la mezcla justa (maximo de la tabla) es 1 y se llega a plena potencia */
@@ -81,17 +82,29 @@ static void engines_step(Flight *f, s32 *t_left, s32 *t_right, s32 dt)
                   + fxmul(a->rpm_max - a->rpm_static, fxmul(MIN(fxmul(f->v, 1638L), FX_ONE), FXF(3, 10) + fxmul(FXF(7, 10), gov)));
             if (!e->running) rpm_t = vint * 25L << 16;
             if (a->prop_type == PROP_CS && e->running) {
-                gov = FXI(1800) + fxmul(a->rpm_max - FXI(1800), f->prop[i]);
-                if (rpm_t > gov || pfs > FXF(4, 10)) rpm_t = gov;
+                /* palanca P = paso de la pala (0 fino .. 1 grueso). Un paso mas grueso carga mas la helice y frena el motor: tope de
+                 * rpm de rpm_max (fino) a 1800 (grueso). Por debajo del tope las rpm siguen a la potencia que dan gas y mezcla
+                 * (ralenti con gas 0, rpm_max a gas maximo y mezcla justa) y suben algo con la velocidad, que descarga la helice */
+                s32 x = fxdiv(MAX(pfs - FXF(3, 10), 0), FXF(7, 10));         /* 0 en ralenti, 1 a plena potencia */
+                x = MIN(x + fxmul(MIN(fxmul(f->v, 1638L), FX_ONE), FXF(1, 2)), FX_ONE);
+                rpm_t = a->rpm_idle + fxmul(a->rpm_max - a->rpm_idle, x);
+                gov = a->rpm_max - fxmul(a->rpm_max - FXI(1800), f->prop[i]);
+                if (rpm_t > gov) rpm_t = gov;
             }
             rpm_t = MIN(rpm_t, a->rpm_max + a->rpm_max / 10);
             e->rpm += fxmul(rpm_t - e->rpm, dt * 2);
             pf = fxmul(pfs, fxdiv(e->rpm, a->rpm_max));
             e->power = fxmul(a->power, pf);
             pw = (e->power >> 16) * 1000L + (((e->power & 0xFFFF) * 1000L) >> 16);
-            eta = a->prop_type == PROP_CS ? FXF(82, 100) : FXF(80, 100);
+            if (a->prop_type == PROP_CS) {
+                /* rendimiento: cada paso rinde al maximo (0.86) a su velocidad (fino 25 m/s, grueso 90 m/s) y cae con el cuadrado
+                 * de la diferencia (/8000); la traccion estatica es mayor con paso fino (19 N/kW) que con grueso (11 N/kW) */
+                s32 vp = FXI(25) + fxmul(FXI(65), f->prop[i]), dv = (f->v - vp) >> 16;
+                eta = MAX(FXF(86, 100) - dv * dv * 8L, FXF(40, 100));         /* dv * dv / 8000 */
+                k = 19 - (int)((8L * f->prop[i]) >> 16);
+            } else { eta = FXF(80, 100); k = 26; }
             T = fxmul(pw, eta) / MAX(vint, 1);
-            T = MIN(T, (pw / 1000L) * (a->prop_type == PROP_CS ? 17 : 26));   /* traccion estatica maxima, N por kW */
+            T = MIN(T, (pw / 1000L) * k);                                    /* traccion estatica maxima, N por kW */
             if (!e->running) T = -(vint * vint) / 8;  /* helice en molinete: resistencia */
             r = ABS(r - FXF(8, 10));
             e->egt = FXI(250) + fxmul(FXI(550), fxmul(pfs, MAX(FX_ONE - fxmul(r, FXF(6, 5)), FXF(3, 10))));

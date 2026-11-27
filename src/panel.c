@@ -17,8 +17,8 @@
 #define COL4 328
 #define RB_X 376               /* bloque derecho */
 #define GEAR_LV_X 468          /* palanca del tren: guia vertical de 7 px y cuadrado de 3x3 */
-#define GEAR_LV_Y0 166
-#define GEAR_LV_Y1 172
+#define GEAR_LV_Y0 165
+#define GEAR_LV_Y1 171
 #define MSG_Y 229
 #define STAT_Y 241
 
@@ -26,6 +26,7 @@ static u8 *clean;              /* copia del panel limpio (filas PANEL_Y0..255) *
 static Surface S;
 static const AircraftDef *AC;
 static int asi_max;
+static int rad_ok, eng_ok;     /* 1: la firma de las radios / los tres textos del motor es lo que esta pintado */
 static s16 hw_tab[RY + 1];     /* semiancho del horizonte artificial por fila */
 #ifdef AI_DIFF
 /* Lo que hay pintado en cada fila: color de la parte izquierda (0 cielo, 1 tierra, 2 = sin pintar) y la columna donde empieza la derecha.
@@ -154,7 +155,7 @@ void panel_build(u8 *scr, const AircraftDef *ac)
     ring(COL3, ROW1);
     for (i = 0; i < 50; i++) tick(COL3, ROW1, (u16)(i * 1311L), i % 5 ? 236 : 200, 256, C_WHITE);
     for (i = 0; i < 10; i++) { b[0] = (char)('0' + i); b[1] = 0; label_at(COL3, ROW1, (u16)(i * 6554L), 160, b, C_WHITE); }
-    ctext(COL3, ROW1 - 14, "ALT", C_GREEN);
+    ctext(COL3, ROW1 - 11, "ALT", C_GREEN);
 
     /* RPM / N1 */
     ring(COL4, ROW1);
@@ -179,8 +180,8 @@ void panel_build(u8 *scr, const AircraftDef *ac)
     tick(COL1, ROW2, (u16)(49152U - 2731), 200, 256, C_WHITE);
     tick(COL1, ROW2, 16384, 200, 256, C_WHITE);
     tick(COL1, ROW2, 49152U, 200, 256, C_WHITE);
-    gfx_text(&S, COL1 - 36, ROW2 + 4, "L", C_WHITE);
-    gfx_text(&S, COL1 + 32, ROW2 + 4, "R", C_WHITE);
+    gfx_text(&S, COL1 - 29, ROW2 + 8, "L", C_WHITE);
+    gfx_text(&S, COL1 + 24, ROW2 + 8, "R", C_WHITE);
     gfx_line(&S, COL1 - 14, ROW2 + 13, COL1 + 14, ROW2 + 13, C_WHITE);
     gfx_line(&S, COL1 - 14, ROW2 + 19, COL1 + 14, ROW2 + 19, C_WHITE);
     gfx_line(&S, COL1 - 4, ROW2 + 13, COL1 - 4, ROW2 + 19, C_WHITE);
@@ -212,7 +213,7 @@ void panel_build(u8 *scr, const AircraftDef *ac)
     for (i = 0; i < 4; i++)
         if (slot_x[i] >= 0) { char l[2]; l[0] = slot_ch[i]; l[1] = 0; gfx_text(&S, slot_x[i], 215, l, C_GREEN); }
     if (ac->retract) {
-        gfx_text(&S, 434, 176, "TREN", C_GREEN);
+        gfx_text(&S, 434, 175, "GEAR", C_GREEN);
         gfx_line(&S, GEAR_LV_X, GEAR_LV_Y0, GEAR_LV_X, GEAR_LV_Y1, C_WHITE);     /* guia de la palanca del tren */
     }
 }
@@ -327,11 +328,14 @@ void panel_init(u8 *scr, const AircraftDef *ac, const char *acf, u8 *work)
 #define NONE (-30000)
 static int s_kt, s_alt, s_rpm[2], s_rpmt, s_vsi, s_bank, s_ball, s_hdg, s_ai_b, s_ai_h, s_cdi_x, s_cdi_y, s_cdi_col;
 static int s_cdi_loc, s_cdi_flag, s_cdi_obs, s_bar[7], s_gear, s_lever, s_marker, s_stopped;
+static int s_brk;                      /* frenos de las ruedas pintados (BRK) */
 static int s_up_on;                    /* tren recogido y bloqueado: luces rojas hasta pasar unos segundos */
 static u32 s_up_t;
 static char s_rad[6][40], s_eng[4][24], s_msg[84], s_stat[84];
 static int s_warn, s_fps = -3;
-static u16 s_asi_a, s_alt_a1, s_alt_a2, s_rpm_a[2], s_vsi_a;
+static s16 s_alt_p[2][2];                         /* altimetro: extremos de las agujas de 10000 y de 1000 pies, tal como estan pintadas (x < 0: ninguna) */
+static char s_alt_t[8];                           /* altimetro: texto pintado */
+static u16 s_asi_a, s_rpm_a[2], s_vsi_a;
 
 static int same(const char *a, const char *b)
 {
@@ -363,14 +367,16 @@ static void xrect(int x0, int y0, int x1, int y1, int c)
 static void panel_reset_state(void)
 {
     int i;
+    s_alt_p[0][0] = s_alt_p[1][0] = -1;
     s_kt = s_alt = s_rpmt = s_vsi = s_bank = s_ball = s_hdg = s_ai_b = s_ai_h = s_cdi_x = s_cdi_y = NONE;
     s_rpm[0] = s_rpm[1] = NONE;
     s_cdi_loc = s_cdi_flag = s_cdi_obs = s_cdi_col = s_gear = s_lever = s_marker = s_stopped = NONE;
     for (i = 0; i < 7; i++) s_bar[i] = NONE;
-    s_up_on = 0;
+    s_up_on = 0; s_brk = NONE;
     for (i = 0; i < 6; i++) s_rad[i][0] = 1;       /* distinto de cualquier cadena real: se pinta la primera vez */
     for (i = 0; i < 4; i++) s_eng[i][0] = 1;
     s_msg[0] = 1; s_stat[0] = 1; s_warn = NONE; s_fps = -3;
+    rad_ok = 0; eng_ok = 0;
 #ifdef AI_DIFF
     memset(ai_pl, 2, sizeof ai_pl);
     ai_touch = 1;
@@ -561,19 +567,84 @@ static void draw_ai(const Flight *f)
     ai_paint(f);
 }
 
+/* Altimetro. Lo que cuesta cada repintado (~22 ms en el QL antes de esto): 8 lineas de aguja con recorte, las divisiones de 32 bits de
+ * los angulos y de u_num, y borrar y pintar los cinco digitos. Ahora: las agujas van sin recorte (caen siempre dentro de la esfera),
+ * con los extremos guardados (no se recalculan para borrarlas) y solo se rehacen si su extremo ha cambiado de pixel (la de 1000 pies
+ * se mueve 0,36 grados por cada 10 pies: una vez de cada cinco o seis); el texto solo cambia los digitos que cambian. */
+#ifdef USE_ASM_3D
+s32 sdiv32(s32 a, s32 b);
+#else
+#define sdiv32(a, b) ((b) ? (a) / (b) : 0)
+#endif
+
+static void alt_pt(u16 a, int kx, int ky, s16 *p)
+{
+    p[0] = (s16)(COL3 + (MULS16(isin(a), kx) >> 14));
+    p[1] = (s16)(ROW1 - (MULS16(icos(a), ky) >> 14));
+}
+
+static void xneedle_raw(const s16 *p, int c)      /* aguja gruesa sin recorte, del centro del altimetro al extremo p */
+{
+    int x = p[0], y = p[1];
+    if (ABS(x - COL3) >= ABS(y - ROW1)) {
+        gfx_line_xor(S.base, COL3, ROW1, x, y, c); gfx_line_xor(S.base, COL3, ROW1 + 1, x, y + 1, c);
+    } else {
+        gfx_line_xor(S.base, COL3, ROW1, x, y, c); gfx_line_xor(S.base, COL3 + 1, ROW1, x + 1, y, c);
+    }
+}
+
 static void draw_alt(const Flight *f)
 {
-    s32 ft = (M2FT(f->z) >> 8) / 10 * 10;     /* z esta en Q8 m; se muestra de 10 en 10 pies */
+    s32 t = M2FT(f->z) >> 8, ft, n;               /* z esta en Q8 m; se muestra de 10 en 10 pies */
     char b[8];
+    s16 np[2][2];
+    u16 a1, a2;
+    int i, k, redo[2], tc;
+    if (t >= 0 && t < 65536L) { u16 u = (u16)t; n = (u16)(u / 10); } else n = t / 10;
+    ft = n * 10;
     if (ft == s_alt) return;
-    if (s_alt != NONE) { xneedle(COL3, ROW1, s_alt_a1, 140, C_GREEN); xneedle(COL3, ROW1, s_alt_a2, 230, C_WHITE); }
-    gfx_rect(&S, COL3 - 16, ROW1 + 9, COL3 + 16, ROW1 + 17, fill_tab[F_BLACK]);
-    u_num(b, ft, 5, ' ');
-    gfx_text(&S, COL3 - 14, ROW1 + 10, b, C_WHITE);
-    s_alt_a1 = (u16)((ft % 10000) * 65536L / 10000);
-    s_alt_a2 = (u16)((ft % 1000) * 65536L / 1000);
-    xneedle(COL3, ROW1, s_alt_a1, 140, C_GREEN);
-    xneedle(COL3, ROW1, s_alt_a2, 230, C_WHITE);
+    if (n >= 0 && n < 6553) {                     /* camino corto: n = decenas de pies; angulo = (n % 1000) * 65536 / 1000 */
+        u16 q = (u16)n / 1000, m1 = (u16)n - q * 1000;
+        u16 q2 = (u16)n / 100, m2 = (u16)n - q2 * 100;
+        a1 = (u16)sdiv32((s32)m1 << 16, 1000);
+        a2 = (u16)sdiv32((s32)m2 << 16, 100);
+    } else {
+        a1 = (u16)((ft % 10000) * 65536L / 10000);
+        a2 = (u16)((ft % 1000) * 65536L / 1000);
+    }
+    alt_pt(a1, 21, 14, np[0]);
+    alt_pt(a2, 35, 24, np[1]);
+    u_num(b, ft < 0 ? 0 : (ft / 1000) % 100, 2, '0');     /* solo miles de pies, 2 digitos (02 = 2.000 pies) */
+    tc = s_alt == NONE || b[0] != s_alt_t[0] || b[1] != s_alt_t[1];     /* el texto solo cambia al pasar de un millar de pies a otro */
+    /* orden obligado (ver mas arriba): 1) borrar las agujas que se rehacen, 2) cambiar el texto, 3) pintar las nuevas. Se rehace la que
+     * ha cambiado de pixel y la que llega a las filas del texto (el rectangulo de un digito se llevaria sus puntos). */
+    for (k = 0; k < 2; k++) {
+        redo[k] = s_alt_p[k][0] < 0 || s_alt_p[k][0] != np[k][0] || s_alt_p[k][1] != np[k][1] || tc;
+        if (redo[k] && s_alt_p[k][0] >= 0 && s_alt != NONE) xneedle_raw(s_alt_p[k], k ? C_WHITE : C_GREEN);
+    }
+    if (s_alt == NONE) {                          /* primera vez: fondo y texto enteros */
+        gfx_rect(&S, COL3 - 18, ROW1 - 3, COL3 - 3, ROW1 + 5, fill_tab[F_BLACK]);
+        gfx_text(&S, COL3 - 16, ROW1 - 2, b, C_WHITE);
+    } else {
+        char c[2];
+        c[1] = 0;
+        for (i = 0; i < 2; i++)
+            if (b[i] != s_alt_t[i]) {
+                int x = COL3 - 16 + 6 * i;
+                gfx_rect(&S, x - (i ? 0 : 2), ROW1 - 3, x + 5 + (i == 1 ? 2 : 0), ROW1 + 5, fill_tab[F_BLACK]);
+                c[0] = b[i];
+                gfx_text(&S, x, ROW1 - 2, c, C_WHITE);
+            }
+    }
+    for (i = 0; i < 2; i++) s_alt_t[i] = b[i];
+#ifdef PROF_ALT
+    { extern long prof_alt_redo[2]; prof_alt_redo[0] += redo[0]; prof_alt_redo[1] += redo[1]; }
+#endif
+    for (k = 0; k < 2; k++)
+        if (redo[k]) {
+            s_alt_p[k][0] = np[k][0]; s_alt_p[k][1] = np[k][1];
+            xneedle_raw(np[k], k ? C_WHITE : C_GREEN);
+        }
     s_alt = (int)ft;
 }
 
@@ -822,9 +893,21 @@ static void line_txt(char *last, int x, int y, const char *t, int c)
     gfx_text(&S, x, y, t, c);
 }
 
+typedef struct { u16 com, nav1, nav2, adf, squawk, min, rel; int dme, cdi2, flag2, advalid; const Nav *n1, *n2; } RadSig;
+static RadSig rad_sig;
+
 static void draw_radios(const Radios *r, const PanelInfo *pi)
 {
     char b[40], fq[8];
+    RadSig sg;
+    sg.com = r->com; sg.nav1 = r->nav1; sg.nav2 = r->nav2; sg.adf = r->adf; sg.squawk = r->squawk;
+    sg.min = (u16)(pi->clock / 60); sg.rel = (u16)(r->adf_rel >> 7); sg.dme = r->dme10; sg.cdi2 = r->cdi2;
+    sg.n1 = r->n1; sg.n2 = r->n2; sg.flag2 = r->n2_flag; sg.advalid = r->adf_valid;
+    /* si nada de lo que sale en las seis lineas ha cambiado no se forman las cadenas ni se comparan (unos 18 ms) */
+    if (rad_ok && rad_sig.com == sg.com && rad_sig.nav1 == sg.nav1 && rad_sig.nav2 == sg.nav2 && rad_sig.adf == sg.adf &&
+        rad_sig.squawk == sg.squawk && rad_sig.min == sg.min && rad_sig.rel == sg.rel && rad_sig.dme == sg.dme &&
+        rad_sig.cdi2 == sg.cdi2 && rad_sig.n1 == sg.n1 && rad_sig.n2 == sg.n2 && rad_sig.flag2 == sg.flag2 && rad_sig.advalid == sg.advalid) return;
+    rad_sig = sg; rad_ok = 1;
     u_cpy(b, "COM1 ", 40); freq_str(r->com, fq); u_cat(b, fq, 40);
     line_txt(s_rad[0], RB_X, 104, b, C_WHITE);
     u_cpy(b, "NAV1 ", 40); freq_str(r->nav1, fq); u_cat(b, fq, 40);
@@ -879,7 +962,7 @@ static void lever(int slot, const s32 *v, int c)
  * (primero las laterales, luego la central). Con el tren recogido y bloqueado, rojas unos segundos y luego apagadas (gris). */
 static void draw_gear(const Flight *f)
 {
-    static const int gx[3] = { 443, 434, 452 }, gy[3] = { 164, 167, 167 };
+    static const int gx[3] = { 443, 434, 452 }, gy[3] = { 163, 166, 166 };
     static const u8 col[3] = { F_DKGREY, F_RED, F_GREEN };
     s32 g = f->gear_pos;
     int l[3], i, key, lv = f->gear_down ? 1 : 0, y;
@@ -911,15 +994,35 @@ static void eng_txt(char *last, int y, const char *t, int c)
     gfx_text(&S, 434, y, t, c);
 }
 
+static s32 eng_v[4];
+
+/* BRK en rojo, a la derecha de GEAR, mientras estan puestos los frenos de las ruedas */
+static void draw_brk(const Flight *f)
+{
+    int b = f->brakes != 0;
+    if (b == s_brk) return;
+    s_brk = b;
+    restore_box(464, 175, 464 + 3 * 6, 182);
+    if (b) gfx_text(&S, 464, 175, "BRK", C_RED);
+}
+
 static void draw_engine(const Flight *f, const Radios *r)
 {
     char b[24];
-    int gs;
+    int gs, low;
+    s32 v0, v1, v2;
+    draw_brk(f);
     lever(0, f->thr, F_WHITE);
     lever(1, f->prop, F_GREEN);
     lever(2, f->mix, F_RED);
     if (slot_x[3] >= 0) bar(3, slot_x[3], 6, f->flap_pos, F_ORANGE, 1);
     if (AC->retract) draw_gear(f);
+    v0 = AC->eng_type == ENG_PISTON ? fxmul(f->e[0].map, FXI(10)) >> 16 : f->e[0].egt >> 16;
+    v1 = AC->eng_type == ENG_PISTON ? f->e[0].egt >> 16 : f->e[0].ff >> 16;
+    v2 = f->fuel >> 16;
+    low = f->fuel < AC->fuel_max / 10;
+    if (eng_ok && v0 == eng_v[0] && v1 == eng_v[1] && v2 == eng_v[2] && low == eng_v[3]) goto eng_rest;   /* los tres textos ya estan pintados */
+    eng_v[0] = v0; eng_v[1] = v1; eng_v[2] = v2; eng_v[3] = low; eng_ok = 1;
     if (AC->eng_type == ENG_PISTON) {
         u_cpy(b, "MAP ", 24); { char t[10]; u_dec1(t, fxmul(f->e[0].map, FXI(10)) >> 16, 4); u_cat(b, t, 24); }
         eng_txt(s_eng[0], 184, b, C_WHITE);
@@ -932,9 +1035,10 @@ static void draw_engine(const Flight *f, const Radios *r)
         eng_txt(s_eng[1], 193, b, C_WHITE);
     }
     if (AC->eng_type != ENG_NONE) {
-        u_cpy(b, "COMB ", 24); u_catn(b, f->fuel >> 16, 4, ' ', 24); u_cat(b, "L", 24);
-        eng_txt(s_eng[2], 202, b, f->fuel < AC->fuel_max / 10 ? C_RED : C_WHITE);
+        u_cpy(b, "FUEL ", 24); u_catn(b, f->fuel >> 16, 4, ' ', 24); u_cat(b, "L", 24);
+        eng_txt(s_eng[2], 202, b, low ? C_RED : C_WHITE);
     }
+eng_rest:
     if (r->marker != s_marker) {
         restore_box(434, 212, 434 + 6 * 5, 219);
         gfx_text(&S, 434, 212, "O", r->marker == NAV_OM ? C_WHITE : C_BLACK + 0);

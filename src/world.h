@@ -24,6 +24,7 @@
 #define OF_MOUNTAIN 0x10
 #define OF_SORT     0x20   /* ordenar caras por profundidad (manzanas, montanas) */
 #define OF_PAPI     0x40   /* luces PAPI: 4 caras de 1 luz, blanca o roja segun el angulo de aproximacion (view3d.c) */
+#define OF_ROWS     0x80   /* luces en filas: 2 vertices (extremos) y una cara [3, color, a, b, n] por fila de n luces equiespaciadas */
 
 #ifndef SOLID_LOD
 #define SOLID_LOD 5        /* alcance de dibujo de los solidos pequenos (edificios, lod < 128) en octavos de su lod: 5/8; 8 = sin recorte */
@@ -41,6 +42,7 @@ typedef struct {
     s16 oz;                         /* altitud del origen (m) */
     u16 radius;                     /* radio envolvente (m) */
     u8  nv, nf;
+    u8  nvf, nff;                   /* version lejana (solo techos): los nvf primeros vertices y las nff primeras caras; 0 = no hay */
     u16 fbytes;
     s16 *v;                         /* nv*3, unidades (1/8 m) << vshift */
     u8  *f;                         /* caras: n, atributo, indices... */

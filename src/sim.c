@@ -1,5 +1,6 @@
 /* sim.c - bucle principal: teclado, fisica a paso fijo, vistas, panel y sonido */
 #include "sim.h"
+#include "map.h"
 #include "platform.h"
 #include "sound.h"
 #include "util.h"
@@ -160,6 +161,11 @@ void sim_reset(void)
     else
         flight_place(&sim.f, rw->tx + (sx * 60 >> 14), rw->ty + (cx * 60 >> 14),
                      ap->elev + (sim.ac.gear_h >> 16), rw->hdg, 0, 1);
+    if (sim.start_mode == START_RAMP || sim.start_mode == START_RWY) sim.f.parking = 1;   /* en tierra se sale con los frenos puestos */
+    if (sim.start_mode == START_RAMP) {                                                 /* y en plataforma, con el motor parado */
+        int i;
+        for (i = 0; i < 2; i++) { sim.f.e[i].running = 0; sim.f.e[i].rpm = 0; sim.f.e[i].n1 = 0; sim.f.e[i].ff = 0; sim.f.thr[i] = 0; }
+    }
     sim.f.wind_e = 0; sim.f.wind_n = -FXI(3);      /* 6 nudos del norte */
     nav_init(&sim.r);
     sim.r.com = ap->twr;
@@ -208,11 +214,25 @@ static void snap_take(int sel, int esc)
     sim_snap_ok = 1;
 }
 
-static void snap_restore(void)
+static void snap_restore(int newac)
 {
     Snap *p = &sim_snap;
-    sim.f = p->f;
-    sim.f.ac = &sim.ac;                    /* punteros que no valen de una ejecucion a otra */
+    if (newac) {                           /* se continua con otro avion: posicion, actitud y velocidad del vuelo guardado; el resto (motores, flaps,
+                                            * tren, combustible, compensador) es el del avion nuevo recien inicializado */
+        Flight *f = &sim.f;
+        f->x = p->f.x; f->y = p->f.y; f->z = p->f.z; f->v = p->f.v;
+        f->gam = p->f.gam; f->alf = p->f.alf; f->the = p->f.the; f->q = p->f.q;
+        f->psi = p->f.psi; f->phi = p->f.phi; f->p = p->f.p;
+        f->vs = p->f.vs; f->ias = p->f.ias; f->gs = p->f.gs; f->turn = p->f.turn; f->slip = p->f.slip;
+        f->agl = p->f.agl; f->wind_e = p->f.wind_e; f->wind_n = p->f.wind_n;
+        f->accx = p->f.accx; f->accy = p->f.accy; f->accz = p->f.accz;
+        f->inv = p->f.inv; f->on_ground = p->f.on_ground; f->crash = p->f.crash; f->brakes = p->f.brakes; f->parking = p->f.parking;
+        if (sim.ac.eng_type != ENG_NONE && !f->on_ground) f->thr[0] = f->thr[1] = p->f.thr[0];
+        f->eng_n = 0; f->hk_last = -1;
+    } else {
+        sim.f = p->f;
+        sim.f.ac = &sim.ac;                /* punteros que no valen de una ejecucion a otra */
+    }
     sim.f.hit_wait = 0; sim.f.hit_gen = 0;
     sim.r = p->r;
     sim.r.n1 = sim.r.n2 = NULL;
@@ -265,6 +285,7 @@ int sim_init(const char *scn, const char *acf, int hour)
     memset(sim.scr, 0, SCR_BYTES);
     cam_zoom(&sim.cam, 256);
     sim.zoom = 256;
+    sim.map_lvl = 1;
     sim.cam.vis = sim.w.vis_km ? (s32)sim.w.vis_km * 1000L : 24000L;
     sim.clock = (u32)hour * 3600UL;
     sim.start_apt = (sim_start_apt >= 0 && sim_start_apt < sim.w.napt) ? sim_start_apt : 0;
@@ -272,7 +293,7 @@ int sim_init(const char *scn, const char *acf, int hour)
     sim.start_rwy = sim_start_rwy;
     sim.start_pt = sim_start_pt;
     sim_reset();
-    if (sim_restore) { sim_restore = 0; snap_restore(); }
+    if (sim_restore) { snap_restore(sim_restore == 2); sim_restore = 0; }
     panel_init(sim.scr, &sim.ac, acf, backbuf);   /* backbuf sirve de borrador para precalcular la rosa */
     snd_init();
     sim.tick_phys = plat_ticks();
@@ -310,8 +331,11 @@ static void controls_step(void)
         if (down(KEY_M)) f->mix[i] = sh ? MIN(f->mix[i] + r / 4, FX_ONE) : MAX(f->mix[i] - r / 4, 0);
         if (down(KEY_P)) f->prop[i] = sh ? MIN(f->prop[i] + r / 4, FX_ONE) : MAX(f->prop[i] - r / 4, 0);
     }
-    f->brakes = down(KEY_DOT);
-    f->starter = down(KEY_E);
+    f->brakes = f->parking || (down(KEY_DOT) && !sh);   /* punto: frenos mientras se mantiene; con el de estacionamiento, siempre */
+    if (sh && down(KEY_E)) {                      /* Mayus+E: parar el motor */
+        f->e[0].running = 0; f->e[1].running = 0;
+        f->starter = 0;
+    } else f->starter = down(KEY_E);              /* E: arrancador */
 }
 
 static void controls_frame(void)
@@ -324,13 +348,20 @@ static void controls_frame(void)
         else if (f->flaps > 0) f->flaps--;
     }
     if (hit(KEY_G) && sim.ac.retract) f->gear_down = !f->gear_down;
+    if (hit(KEY_DOT) && sh) f->parking = !f->parking;   /* Mayus+punto: freno de estacionamiento */
     if (hit(KEY_V)) sim.view_mode = (sim.view_mode + 1) & 3;
     if (hit(KEY_5)) sim.look = 0;
     if (hit(KEY_4)) sim.look = -16384;
     if (hit(KEY_6)) sim.look = 16384;
     if (hit(KEY_8)) sim.look = 32767;
-    if (hit(KEY_EQ)) sim.zoom = MIN(sim.zoom * 2, 2048);
-    if (hit(KEY_MINUS)) sim.zoom = MAX(sim.zoom / 2, 128);
+    if (hit(KEY_Q)) sim.map_req = 1;
+    if (sim.map) {                                                      /* con el mapa abierto, + y - son su escala */
+        if (hit(KEY_EQ) && sim.map_lvl > 0) { sim.map_lvl--; sim.map_redraw = 1; }
+        if (hit(KEY_MINUS) && sim.map_lvl < MAP_LEVELS - 1) { sim.map_lvl++; sim.map_redraw = 1; }
+    } else {
+        if (hit(KEY_EQ)) sim.zoom = MIN(sim.zoom * 2, 2048);
+        if (hit(KEY_MINUS)) sim.zoom = MAX(sim.zoom / 2, 128);
+    }
     if (hit(KEY_N)) rd->nav1 = (u16)(sh ? (rd->nav1 > 10800 ? rd->nav1 - 5 : 11795) : (rd->nav1 < 11795 ? rd->nav1 + 5 : 10800));
     if (hit(KEY_H)) rd->nav2 = (u16)(sh ? (rd->nav2 > 10800 ? rd->nav2 - 5 : 11795) : (rd->nav2 < 11795 ? rd->nav2 + 5 : 10800));
     if (hit(KEY_C)) rd->com = (u16)(sh ? (rd->com > 11800 ? rd->com - 5 : 13695) : (rd->com < 13695 ? rd->com + 5 : 11800));
@@ -557,6 +588,43 @@ static void render_panel(void)
     sim.part = (sim.part + 1) % PANEL_PARTS;
 }
 
+/* ---- vista de mapa (tecla Q, src/map.c): se guarda el panel (20 KB; la vista 3D no merece la pena: se repinta sola en ~1 s), se dibuja el mapa y la vista 3D y el panel se paran (la fisica, la navegacion
+ * y el ATC siguen). Al cerrar se devuelve el panel tal como estaba (pinta solo lo que cambia, asi que debe volver igual); el mapa no se redibuja solo, solo al abrirlo y al cambiar la escala. */
+static u8 *map_save;
+
+static void map_render(void)
+{
+    HOLD_ON();                                    /* world_tiles_near reorganiza la cache de teselas que lee la fisica */
+    map_prepare(&sim.w, &sim.f, sim.map_lvl);
+    HOLD_OFF();
+    map_draw(sim.scr, &sim.w, &sim.f, sim.map_lvl);
+}
+
+static void map_service(void)
+{
+    if (sim.map_req) {
+        sim.map_req = 0;
+        if (sim.map) {
+            gfx_memcpy(sim.scr + (s32)PANEL_SRC_Y0 * SCR_STRIDE, map_save, PANEL_SRC_BYTES);   /* el panel, como estaba */
+            memset(sim.scr, 0, (size_t)PANEL_SRC_Y0 * SCR_STRIDE);                           /* la vista 3D no se guarda: negra hasta la proxima */
+            sim.map = 0;
+            sim.vpart = 0;                        /* la vista que estuviera a medias se abandona: sus teselas pudieron cambiar */
+#ifdef USE_SCHED
+            vj_state = 0;
+#endif
+        } else {
+            if (!map_save) map_save = (u8 *)plat_alloc_hi(PANEL_SRC_BYTES);
+            if (!map_save) return;
+            gfx_memcpy(map_save, sim.scr + (s32)PANEL_SRC_Y0 * SCR_STRIDE, PANEL_SRC_BYTES);
+            sim.map = 1;
+            map_render();
+        }
+    } else if (sim.map && sim.map_redraw) {
+        sim.map_redraw = 0;
+        map_render();
+    }
+}
+
 void sim_render(void)                            /* vista entera y panel (lo usa el PC para las capturas) */
 {
     view_part_a(0);
@@ -573,6 +641,7 @@ void sim_frame(void)
     int n = 0, contact;
     read_keys(0);
     controls_frame();
+    map_service();
     contact = hit(KEY_K);
     now = plat_ticks();
     while ((s32)(now - sim.tick_phys) >= 2 && n < PHYS_MAX) {
@@ -595,6 +664,7 @@ void sim_frame(void)
         atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 1);
     }
     atc_scroll(&sim.atc);
+    if (!sim.map) {                                                            /* con el mapa abierto no se pinta ni la vista ni el panel */
 #if VIEW_SPLIT
     if (sim.vpart == 0) { view_part_a(1); sim.vpart = 1; }                     /* cuadro A de la vista */
     else { view_part_b(); sim.vpart = 0; sim.fps_v++; }                        /* cuadro B: la vista queda completa */
@@ -602,6 +672,7 @@ void sim_frame(void)
     view_part_a(0); view_part_b(); sim.fps_v++;
 #endif
     render_panel();
+    }
     if (sim.show_fps) {                     /* vistas y cuadros de simulacion por segundo (decimas), en ventanas de al menos 1 s */
         u32 dt = plat_ticks() - sim.fps_t0;
         sim.fps_n++;
@@ -631,6 +702,10 @@ static const char sch_pat[] = SCHED_PAT;
 static u32 sch_last;
 static int sch_on;
 static int sch_q_new = 1, sch_kn;
+static u32 sch_q_next;                         /* no se empieza otra vuelta del panel antes de este turno: sus turnos se los lleva la vista */
+#ifndef SCHED_PANEL_TICKS
+#define SCHED_PANEL_TICKS 8                      /* una vuelta del panel como mucho cada 8 turnos (6,25 por segundo) */
+#endif
 static PanelInfo sch_pi;
 
 static void sch_phys(void)                     /* un paso de fisica (en la interrupcion o, recuperado, en el hilo principal) */
@@ -662,7 +737,7 @@ static void sch_start(void)
     sch_on = 1;
     sch_last = plat_ticks();
     phys_hold = 0; phys_missed = 0;
-    sch_q_new = 1; sch_kn = 0;
+    sch_q_new = 1; sch_kn = 0; sch_q_next = 0;
     plat_isr_set(sch_isr);
 }
 
@@ -679,6 +754,7 @@ void sim_frame(void)                           /* se llama en bucle: cada vez qu
     case 'K':
         read_keys(0);
         controls_frame();
+        map_service();
         contact = hit(KEY_K);
         if (contact) {
             nav_update(&sim.r, &sim.w, &sim.f);
@@ -703,6 +779,11 @@ void sim_frame(void)                           /* se llama en bucle: cada vez qu
         atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 0);
         break;
     case 'Q':
+        if (sim.map) break;
+        if (sch_q_new && (s32)(t - sch_q_next) < 0) {          /* el panel acaba de completarse: este turno es de la vista */
+            if (sim_vjob_step(t)) sim.fps_v++;
+            break;
+        }
         if (sch_q_new) {                       /* datos de la linea de estado de la vuelta que empieza */
             sch_pi.clock = sim.clock;
             sch_pi.warn = build_status();
@@ -711,13 +792,16 @@ void sim_frame(void)                           /* se llama en bucle: cada vez qu
             sch_pi.lps10 = sim.lps10;
             sch_q_new = 0;
         }
-        if (panel_job_step(sim.scr, &sim.f, &sim.r, &sim.atc, &sch_pi, t)) sch_q_new = 1;
+        if (panel_job_step(sim.scr, &sim.f, &sim.r, &sim.atc, &sch_pi, t)) { sch_q_new = 1; sch_q_next = t + SCHED_PANEL_TICKS; }
         break;
     case 'V':
-        if (sim_vjob_step(t)) sim.fps_v++;
+        if (!sim.map && sim_vjob_step(t)) sim.fps_v++;
         break;
     default: break;
     }
+    /* lo que sobre del turno (el teclado ocupa 3 ms de 20, la fisica de la interrupcion ~10) es de la vista, que sigue donde se quedo */
+    if (!sim.map && plat_ticks() == t)
+        if (sim_vjob_step(t)) sim.fps_v++;
 }
 #endif
 
@@ -829,10 +913,10 @@ int sim_menu(char *acf, char *scn, int *hour)
     }
     world_close(&mw);
     if (mode == START_CONT) {                       /* el vuelo guardado manda: avion, escenario y salida de origen */
-        sel = sim_snap.sel; esc = sim_snap.esc;
+        esc = sim_snap.esc;                         /* el avion es el elegido ahora (si cambia, el vuelo sigue con el nuevo) */
         sim_start_apt = sim_snap.start_apt; sim_start_mode = sim_snap.start_mode;
         sim_start_rwy = sim_snap.start_rwy; sim_start_pt = sim_snap.start_pt;
-        sim_restore = 1;
+        sim_restore = sel == sim_snap.sel ? 1 : 2;
         *hour = (int)((sim_snap.clock / 3600UL) % 24);
     } else {
         sim_start_apt = apt;

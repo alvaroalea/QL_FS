@@ -8,7 +8,7 @@ Microsoft Flight Simulator 1.0 (1982). C89 para c68/XTC68 (`qcc`) y ensamblador 
 - [x] Núcleo portable en C: punto fijo, tablas, gráficos modo 4, motor 3D, teselas, aviones, vuelo, motores,
       radios (VOR/ILS/DME/ADF/balizas), ATC, panel, sonido, menú.
 - [x] Banco de pruebas en PC (`make`): física, ILS, ATC y 13 capturas en formato de pantalla QL.
-- [x] Escenario Península Ibérica (`tools/iberia.py` -> `build/iberia.scn`, 451 KB a escala 1:2, 750 KB a 1:1):
+- [x] Escenario Península Ibérica (`tools/iberia.py` -> `build/iberia.scn`, 402 KB a escala 1:2, 750 KB a 1:1):
       14 aeropuertos con ILS/VOR/ATIS (Madrid, Bilbao, Barcelona, Palma, Ibiza, Valencia, Málaga, Sevilla, Santiago,
       Asturias, Lisboa, Tenerife Sur, Fuerteventura, Gran Canaria), 20 VOR y 9 NDB en ruta, 33 ciudades,
       sistemas montañosos, ríos, autovías y mar con SPLASH. Canarias desplazada como en los mapas.

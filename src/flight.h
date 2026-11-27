@@ -29,6 +29,7 @@ typedef struct {
     s32 elev, ail, rud, trim;   /* -1..1 ; elev + = morro arriba */
     s32 thr[2], mix[2], prop[2];/* 0..1 */
     int flaps, gear_down, brakes, auto_coord, starter;
+    int parking;                /* freno de estacionamiento (Mayus+punto): mantiene los frenos puestos; brakes = parking o punto pulsado */
     /* estado */
     s32 x, y, z;                /* Q8 m (z = altitud del ojo, MSL) */
     s32 v;                      /* TAS m/s Q16 */

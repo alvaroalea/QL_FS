@@ -13,7 +13,7 @@ PANELES = data/planeador.src data/mono.src data/bimotor.src data/reactor.src   #
 
 COMUN   = src/fixmath.c src/tables.c src/gfx.c src/world.c src/view3d.c \
           src/aircraft.c src/flight.c src/nav.c src/atc.c src/util.c \
-          src/panel.c src/sound.c src/sim.c
+          src/panel.c src/map.c src/sound.c src/sim.c
 
 all: datos prueba capturas cartas
 

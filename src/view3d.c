@@ -20,6 +20,7 @@ int xform_pre(const Camera *c, const Obj *o, s32 dmax, s32 *res);   /* prologo d
 int proj_all(const s32 *v, int n, s32 near_z, int fx, int fy, s32 *out, u8 *front);
 void proj_pt(const s32 *v, int fx, int fy, s32 *out);
 void draw_lights(Surface *s, const s32 *vw, const u8 *idx, int n, int step, int shift, s32 near_z, int fx, int fy, int col, int dbl);
+void draw_lrow(Surface *s, const s32 *p0, const s32 *p1, int cnt, int shift, s32 near_z, int fx, int fy, int col, int dbl);
 int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy_, s32 *out, int cull);
 #endif
 
@@ -32,6 +33,9 @@ int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy_, s32 *out, 
 #ifndef LIGHT_U0
 #define LIGHT_U0 0         /* a partir de que escala U (cada U dobla la distancia) se reducen las luces: 1 de 2, 1 de 4... */
 #endif
+#ifndef ROOF_DIST
+#define ROOF_DIST 3000     /* a mas de tantos metros, los solidos con version lejana (nvf, nff) se dibujan solo con los techos */
+#endif
 #ifndef MIN_PX
 #define MIN_PX 1           /* radio proyectado minimo (pixeles) para dibujar un solido; 0 = sin descarte */
 #endif
@@ -42,6 +46,7 @@ int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy_, s32 *out, 
 static s16 rel[MAXV * 3];
 static s32 vw[MAXV * 3];
 static s32 near_z;
+static int obj_nf;                                    /* caras que se dibujan del objeto actual (nff si se dibuja solo con techos) */
 static int obj_u, light_step, light_shift;           /* escala del objeto actual: lejos -> sin contornos */
 
 void attitude_matrix(u16 hdg, s16 pit, s16 bnk, s16 *m)
@@ -219,6 +224,33 @@ void draw_lights(Surface *s, const s32 *vw, const u8 *idx, int n, int step, int 
         proj_pt(p, fx, fy, o);
         gfx_pixel(s, (int)o[0], (int)o[1], col);
         if (dbl) gfx_pixel(s, (int)o[0] + 1, (int)o[1], col);
+    }
+}
+
+/* fila de cnt luces equiespaciadas entre los vertices transformados p0 y p1 (espacio de camara): se pintan las de indice 0, 2^shift,
+ * 2*2^shift... < cnt, interpolando en camara con 12 bits de fraccion (la fila es recta en 3D) y proyectando cada una; en el QL es
+ * draw_lrow (ql68k.s), que hace exactamente esto */
+void draw_lrow(Surface *s, const s32 *p0, const s32 *p1, int cnt, int shift, s32 nz, int fx, int fy, int col, int dbl)
+{
+    s32 x, y, z, dx = 0, dy = 0, dz = 0, t[3], o[2];
+    int k, n = (cnt + (1 << shift) - 1) >> shift;
+    if (p0[2] < nz && p1[2] < nz) return;
+    x = (s32)((u32)p0[0] << 12); y = (s32)((u32)p0[1] << 12); z = (s32)((u32)p0[2] << 12);
+    if (cnt > 1) {
+        dx = sdiv32((s32)((u32)(p1[0] - p0[0]) << 12), cnt - 1);
+        dy = sdiv32((s32)((u32)(p1[1] - p0[1]) << 12), cnt - 1);
+        dz = sdiv32((s32)((u32)(p1[2] - p0[2]) << 12), cnt - 1);
+        dx = (s32)((u32)dx << shift); dy = (s32)((u32)dy << shift); dz = (s32)((u32)dz << shift);
+    }
+    for (k = 0; k < n; k++) {
+        t[2] = z >> 12;
+        if (t[2] >= nz) {
+            t[0] = x >> 12; t[1] = y >> 12;
+            proj_pt(t, fx, fy, o);
+            gfx_pixel(s, (int)o[0], (int)o[1], col);
+            if (dbl) gfx_pixel(s, (int)o[0] + 1, (int)o[1], col);
+        }
+        x = (s32)((u32)x + (u32)dx); y = (s32)((u32)y + (u32)dy); z = (s32)((u32)z + (u32)dz);
     }
 }
 #endif
@@ -425,9 +457,24 @@ static int xform_obj(const Camera *c, const Obj *o, s32 dmax)
     if (n > MAXV) n = MAXV;
     if (!xform_pre(c, o, dmax, res)) return 0;
     U = (int)res[0]; rx = (s16)res[1]; ry = (s16)res[2]; rz = (s16)res[3];
+    obj_nf = o->nf;
+    if (o->nff) {                                        /* version lejana: solo techos (sus vertices y sus caras van los primeros) */
+        s32 dx = o->ox - (c->x >> 8), dy = o->oy - (c->y >> 8);
+        if (dx < 0) dx = -dx;
+        if (dy < 0) dy = -dy;
+        if ((dx > dy ? dx : dy) > ROOF_DIST) { n = o->nvf; obj_nf = o->nff; }
+    }
     light_shift = U > LIGHT_U0 ? U - LIGHT_U0 : 0;       /* luces lejanas: 1 de cada 2^light_shift */
     if (o->flags & OF_PAPI) light_shift = 0;             /* PAPI: son 4 luces sueltas, todas se pintan */
     light_step = 1 << light_shift;
+    if (o->type == OBJ_LIGHTS && (o->flags & OF_ROWS)) {
+        /* filas de luces: se transforman los extremos de cada fila (2 vertices) y las luces se interpolan al dibujar */
+        xform_obj3(c->m, v, vw, n, 1, o->vshift, U, rx, ry, rz);
+        near_z = MAX(4 >> U, 1);
+        obj_u = U;
+        vstats.verts += n;
+        return n;
+    }
     if (o->type == OBJ_LIGHTS) {
         /* solo se transforman las luces que se van a pintar */
         int j = (n + light_step - 1) >> light_shift;
@@ -455,7 +502,7 @@ static void draw_sorted(Surface *s, const Camera *c, const Obj *o)
 {
     const u8 *f = o->f, *fp[SORTF];
     s32 key[SORTF];
-    int i, j, nf = MIN(o->nf, SORTF), nv = 0, n, rc, ord[SORTF], fm[SORTF], to;
+    int i, j, nf = MIN(obj_nf, SORTF), nv = 0, n, rc, ord[SORTF], fm[SORTF], to;
     for (i = 0; i < nf; i++) {
         n = f[0];
         rc = n <= 8 ? poly_fast(f + 2, n, pfront, pxy, sbuf[nv], 1) : -1;
@@ -484,7 +531,7 @@ static void draw_obj(Surface *s, const Camera *c, const Obj *o)
     const u8 *f = o->f;
     int i, k, n, col;
     if (o->type == OBJ_SOLID && (o->flags & OF_SORT) && !view_wire) { draw_sorted(s, c, o); return; }
-    for (i = 0; i < o->nf; i++) {
+    for (i = 0; i < obj_nf; i++) {
         n = f[0];
         switch (o->type) {
         case OBJ_GROUND: draw_poly(s, c, f, 0); break;
@@ -495,6 +542,9 @@ static void draw_obj(Surface *s, const Camera *c, const Obj *o)
         case OBJ_LIGHTS:
             /* las luces se guardan en orden: el vertice j-esimo transformado es
              * el (j*light_step)-esimo del objeto (ver xform_obj) */
+            if (o->flags & OF_ROWS) {              /* cada cara: [3, color, a, b, n] = fila de n luces del vertice a al b */
+                draw_lrow(s, vw + f[2] * 3, vw + f[3] * 3, f[4], light_shift, near_z, c->fx, c->fy, f[1] & 3, obj_u == 0);
+            } else
             if (o->flags & OF_PAPI) {
                 /* PAPI: la luz i (0 = la mas cercana a la pista) es blanca si el angulo de elevacion del avion sobre la unidad supera
                  * 2,5 / 2,83 / 3,17 / 3,5 grados (tangente x 1000: 44, 49, 55, 61) y roja si no: en senda, dos blancas y dos rojas */
@@ -575,19 +625,23 @@ int view_gather_step(const Camera *c, int n)
 
 s32 view_sort_step(int n)
 {
-    Item t;
-    int j, i;
-    s32 total = 0;
-    /* orden descendente de clave: suelo (por tamano) y luego solidos de lejos a cerca */
+    Item *p, *q;
+    const Obj *to;
+    s32 tk, total = 0;
+    int i;
+    /* orden descendente de clave: suelo (por tamano) y luego solidos de lejos a cerca. Insercion estable. Ojo: c68 resuelve la asignacion
+     * de una estructura (items[j + 1] = items[j]) con una llamada a la biblioteca de ~400 ciclos; se copian los dos campos a mano.
+     * (Probado: tres pasadas por cubetas, exactamente el mismo orden, gasta mas que la insercion con 70-130 objetos: en c68 cada
+     * pasada por elemento cuesta ~200 ciclos y la lista llega casi ordenada.) */
     while (n-- > 0 && g_si < g_ni) {
-        i = g_si++;
-        t = items[i]; j = i - 1;
-        while (j >= 0 && items[j].key < t.key) { items[j + 1] = items[j]; j--; }
-        items[j + 1] = t;
+        q = &items[g_si++];
+        to = q->o; tk = q->key;
+        for (p = q - 1; p >= items && p->key < tk; p--, q--) { q->o = p->o; q->key = p->key; }
+        q->o = to; q->key = tk;
     }
     if (g_si < g_ni) return -1;
     n_items = g_ni; next_item = 0;
-    for (i = 0; i < g_ni; i++) total += (s32)items[i].o->nv + items[i].o->nf;
+    for (p = items, i = g_ni; i > 0; i--, p++) total += (s32)p->o->nv + p->o->nf;
     return total;
 }
 

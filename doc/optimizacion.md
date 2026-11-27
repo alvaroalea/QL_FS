@@ -19,8 +19,9 @@ función que lo llamó. Hace falta el sQLux con el parche de perfil (la rama `pr
   parada, para compararla byte a byte con la del PC (`tmp/shot.c`): así se comprobó que el ensamblador nuevo pinta
   **exactamente** lo mismo que la versión en C.
 
-> **Estado actual (27 nov 2026):** las cifras de las secciones intermedias son históricas, de cuando se midieron. Las vigentes,
-> la lista de pendientes ordenada y las conclusiones están en la última sección, «Reevaluación y perfil del simulador actual».
+> **Estado actual (27 nov 2026):** las cifras de las secciones intermedias son históricas, de cuando se midieron. Las vigentes están en
+> la última sección, «Ronda 3» (panel, luces en filas, marcas de pista, ordenación y el resumen con el pendiente); «Reevaluación y perfil del
+> simulador actual» es la ronda anterior.
 
 ## Qué se encontró
 
@@ -378,3 +379,246 @@ llegar ahí sigue haciendo falta un presupuesto duro de contenido (vértices y c
   +17 KB y +127 objetos en el escenario de prueba; +2 % de coste de noche, 0 % de día.
 * **Pendiente de medir tras la propuesta 1** (filas de luces): repetir `make prof ESCENA=3`; las luces de calle, de borde de pista y de
   aproximación son las que más se beneficiarían, porque van en línea recta con paso constante.
+
+## Ronda 3: análisis del panel y de las luces, perfil y optimizaciones una a una (27 noviembre 2026)
+
+Punto de partida (tras la pila y el montón en RAM alta, `fxmul` con vía corta y el panel/planificador de la ronda anterior). Para
+comparar sin ruido todas las cifras de esta ronda se miden con la **física parada** (`PROFFLAGS="-DPROF_PAUSE=1 -DPROF_DUMPS=3"`): sin
+ella la escena 1 cambia de un volcado a otro porque el avión avanza (9,9 → 6,1 s entre el primer y el cuarto volcado). Un volcado son
+25 cuadros del bucle sin planificador (12,5 vistas); `ms por vista` = s / 12,5. El perfil se lanza de cuatro en cuatro:
+`qcc` usa ficheros temporales comunes y no admite dos compilaciones a la vez, así que se compila en serie y se ejecuta en paralelo
+(`BUILD_ONLY=1` y `RUN_ONLY=1` de `tools/ql_prof.sh`, igual que `tools/bench_sched.sh`; cada escena con su `PROFDIR=build/profN`, y el nombre debe
+contener `prof` porque el reparto de la biblioteca de C lo busca en el mapa de enlace). Todo eso lo hace `tools/ql_prof_all.sh etiqueta 0 1 3 4`.
+
+### Perfil de partida (física parada, volcado estacionario)
+
+| Escena | s por volcado | ms por vista | Funciones que más pesan |
+| --- | ---: | ---: | --- |
+| 0 cabina en cabecera | 14,56 | 1.165 | `xform_obj3` 13 %, `poly_fast` 9 %, `gfx_fill_convex`+`fc_hspan` 11 %, `pj_xy`+`pj_div` 11 %, `view_sort_step` 5 % |
+| 1 final a 5 km | 6,43 | 514 | `fc_hspan`+`gfx_fill_convex` 16 %, `gfx_line_raw` 8 %, `xform_obj3` 5 %, `gfx_memcpy` 5 %, `gather_tile` 4 % |
+| 3 final nocturno | 9,09 | 727 | `xform_obj3` 21 %, `pj_xy`+`pj_div` 17 %, `draw_lights`+`dl_plot` 14 %, `view_sort_step` 5 % |
+| 4 reactor, 12 km | 7,10 | 568 | `gfx_fill_convex`+`fc_hspan` 21 %, `gfx_line_raw` 7 %, `gfx_memcpy` 4 % |
+
+(`ROM/QDOS`, 9 % en todas, es el teclado del bucle sin planificador; con el planificador se lee a ~10 filas/s y pesa mucho menos.)
+
+Dónde está el tiempo, por orden: (1) **vértices**: en la escena de noche `xform_obj3` + `pj_xy` + `pj_div` + `draw_lights` + `dl_plot` son el
+**51 %**, casi todo luces de pista, de aproximación y de calle de rodaje; en cabecera de día `xform_obj3` + `poly_fast` + proyección son el 35 %
+(marcas de pista y calles); (2) el relleno, dominante en las escenas con mucho suelo grande (1 y 4); (3) ordenar objetos (`view_sort_step`, 5 %) y reunirlos
+(`gather_tile`, 3-4 %); (4) volcado, 3-5 %.
+
+### Punto 1: altímetro (`draw_alt`)
+
+**Análisis.** Se midió con `-DPROF_ALT=100` (`src/prof.c`: 100 repintados con la altitud subiendo 10 pies cada vez, en tres rondas: desde
+500 pies, desde 3.800 —la aguja de 10.000 pies cruza el texto— y desde 25.000). Antes: **21,5 a 22,2 ms por repintado** (unas 160.000 ciclos), la
+mayor unidad del panel y más de un turno de 20 ms. Por función: `gfx_line_xor` 30 %; recorte de las agujas (`line_clip`, `outcode`,
+`gfx_line_xor_s`, `xline`) 17 %; cálculo de extremos (`dpt`, `isin`/`icos`, `xneedle`) 11 %; texto (`gfx_text_raw`, `gfx_text`, `u_num`)
+14 %; borrar el cuadro de cifras (`gfx_rect`, `gfx_hspan`, `fc_hspan`) 11 %.
+
+**Qué se hizo** (`src/panel.c`, `src/util.c`):
+
+* Las agujas van **sin recorte** (`gfx_line_xor` directa): caen siempre dentro de la esfera.
+* Los extremos de las dos agujas se **guardan**: no se recalculan para borrarlas, y una aguja **solo se rehace si su extremo cambia de píxel**
+  (la de 10.000 pies se mueve 0,36° por cada 10 pies, 0,09 píxeles: cambia una vez de cada once; se rehace siempre solo cuando cruza el texto
+  —entre ~3.500 y ~6.500 pies—, porque el rectángulo de un dígito se llevaría sus puntos y el XOR de borrarla después dejaría restos).
+  Orden obligado: borrar agujas que se rehacen → cambiar texto → pintar agujas.
+* **Solo se repintan los dígitos que cambian** (con 10 pies de paso, casi siempre uno).
+* Ángulos con `sdiv32` (dos `DIVU`) en vez de `%` y `/` de 32 bits, y extremos con `MULS16` (mismas constantes: `RX*k>>8` = 21 y 35, `RY*k>>8` = 14 y 24).
+* `u_num` (lo usan todos los textos del panel) divide en 16 bits (`DIVU`) cuando el número cabe (antes 2 divisiones de 32 bits de la biblioteca por dígito).
+
+**Comprobación.** `tmp/alttest.c` (compilado con el `panel.c` anterior y el nuevo en el PC) repinta 3.000 altitudes (1.500 en escalones suaves de ±10 pies y 1.500
+saltos aleatorios entre −66 y 33.000 pies) y compara la zona del altímetro: **idéntica pixel a pixel**.
+
+**Resultado** (SPEED 1, ms por repintado):
+
+| Ronda | Antes | Ahora |
+| --- | ---: | ---: |
+| desde 500 pies | 21,5 | **11,4** (−47 %) |
+| desde 3.800 pies (aguja de 10.000 pies sobre el texto) | 21,7 | **13,9** (−36 %) |
+
+Lo que queda es `gfx_line_xor` (~50 %, unos 220 ciclos por píxel: la 68008 con la contención de la pantalla). Se descarta especializar su bucle (color
+y sentido): ahorraría ~25 % de un 1 % del fotograma.
+
+### Punto 2: luces de pista, aproximación, calle de rodaje y ciudad como filas (`OF_ROWS`)
+
+**Análisis.** Cada luz era un vértice del escenario: `xform_obj3` la transformaba (~1.400 ciclos), `pj_xy` la proyectaba (~900) y `dl_plot` la
+pintaba (~560). Pero casi todas las luces van **en línea recta con paso constante**: los dos bordes de cada pista (una luz cada 60 m), el umbral y
+el final (11 luces), el eje y las dos barras de aproximación (15 + 3 + 3), las luces verdes de eje de calle (cada 40 m) y las calles de la
+ciudad (una cada 240 m). Del generador (`tools/iberia.py`): 18.067 luces de calles de ciudad, 2.216 de borde de pista, 2.098 de calle de rodaje, 231 + 231
+de umbral y final y 399 de aproximación; solo quedan sueltas las 14 de torres, las 380 rojas de edificios altos y los PAPI. Como la perspectiva
+conserva las rectas, una fila basta con sus **dos extremos**: se transforman 2 vértices en vez de n, y las luces intermedias se obtienen
+**sumando** un paso en coordenadas de cámara (X, Y, Z con 12 bits de fracción) y proyectando cada una.
+
+**Qué se hizo**
+
+* **Formato** (`tools/mkscen.py`, `src/world.h`): bandera `OF_ROWS` (0x80) en un objeto `OBJ_LIGHTS`; cada fila son 2 vértices (extremos) y una cara
+  `[3, color, a, b, n]` (n luces equiespaciadas de `a` a `b`, hasta 255). `Scen.lrows` agrupa hasta 48 filas por objeto. Pistas, calles de rodaje (en tramos
+  entre las partes que caen sobre una pista) y calles de ciudad se generan como filas; los PAPI, torres y luces rojas siguen como luces sueltas (mismo
+  código de siempre). El `.scn` de Iberia pasa de **531 KB a 391 KB**, de 4.017 a 3.755 objetos y la tesela mayor de 30,8 a 18,1 KB (menos disco, menos
+  carga de teselas, menos objetos que reunir y ordenar).
+* **Dibujo** (`src/view3d.c`, `src/ql68k.s`): `xform_obj` transforma los vértices de las filas (sin el diezmado por distancia) y `draw_obj` llama a `draw_lrow` por cara.
+  `draw_lrow` (ensamblador; en el PC la referencia en C con la misma aritmética) calcula el paso `d = (p1 − p0)·4096 / (n − 1)` con `sdiv32`, lo multiplica por
+  `2^shift` (el diezmado por distancia de siempre: 1 luz de cada 2^U), descarta la fila si sus dos extremos están detrás del plano cercano y, por luz, interpola,
+  descarta las de detrás del plano cercano, proyecta con `pj_xy` (nueva entrada `pj_xy_r` con x, y, z ya en registros) y pinta con `dl_plot` (un punto; dos si el objeto es cercano).
+* **Comprobación.** `-DASM_TEST` (marca 107): `draw_lrow` contra la referencia en C sobre 300 filas aleatorias (extremos grandes, filas que cruzan el plano cercano,
+  distintos `shift`, `dbl`, colores) → **0 píxeles distintos**. En el PC, la escena 3 (noche) con el escenario antiguo y el nuevo difiere en 219 de 32.768 bytes de pantalla
+  (el redondeo de interpolar frente a transformar cada luz); las escenas de día, 0 diferencias.
+
+**Resultado** (SPEED 1, física parada, s por volcado de 25 cuadros):
+
+| Escena | Antes | Ahora | |
+| --- | ---: | ---: | ---: |
+| 3 final nocturno | 9,09 | **7,27** | −20 % |
+| 1 final a 5 km | 6,43 | 6,38 | −1 % (menos objetos que reunir) |
+| 0 cabina en cabecera | 14,56 | 14,51 | 0 |
+| 4 reactor, 12 km | 7,10 | 7,05 | −1 % |
+
+Escena 3 por etapas, antes → ahora: `xform_obj3` 1,87 → 0,60 s; `draw_lights` 0,80 → `draw_lrow` 1,27 s (incluye el interpolado); `pj_xy`+`pj_div` 1,5 → 1,03 s;
+`dl_plot` 0,51 → 0,40 s; nuevo `sdiv32` 0,49 s (tres divisiones por fila).
+
+**Coste medido de `draw_lrow`** (`-DPROF_LROW`, 200 filas, SPEED 1): ~1.950 ciclos de la propia rutina para una fila de 1 luz y unos 730 por luz más (cada instrucción del
+68008 con el bus de 8 bits cuesta ~25 ciclos); proyección ~900 y `dl_plot` ~560 por luz. Antes una luz costaba ~3.300 ciclos; ahora ~2.200.
+
+**Lo que queda aquí** (no aplicado): las tres divisiones por fila (`sdiv32` 6,7 % de la noche; en línea con signo y valor absoluto compartidos ahorrarían ~2 %); `dl_plot` recorta con
+cuatro comparaciones (~560 ciclos; con el recorte de la ventana de la vista como constantes sin signo, ~350); y bajar `LIGHT_U0` / limitar luces por vista cambia lo que se ve.
+
+### Punto 3: marcas de pista cercanas (objetos pequeños y alcance corto)
+
+**Análisis.** En la escena 0 (cabina en cabecera, la peor) `xform_obj3`, `poly_fast`, `pj_xy` y `pj_div` suman el 35 %, y la lista de objetos dibujados (`-DOBJ_DUMP` en el PC) muestra
+por qué: de ~800 vértices por vista, **400 son cinco objetos del eje discontinuo de la pista** (20 rayas = 80 vértices cada uno, `lod` 8 = 2 km) y 48 más las barras de umbral
+(las dos cabeceras en un solo objeto de radio 2 km). Una raya mide 1,2 m de ancho: con `fx` = 343 ocupa menos de un píxel a partir de ~400 m, y `TINY_PX` ya
+no la pinta (caja ≤ 1 píxel en los dos sentidos), pero **antes de descartarla** se transforma, se proyecta y pasa por `poly_fast`. Con objetos de 1,2 km de radio nunca se descartan enteros.
+
+**Qué se hizo** (`tools/mkscen.py`): el eje se parte en objetos de `MARK_DASHES` = 5 rayas (20 vértices) y las barras de umbral en un objeto por cabecera, todos con `lod` =
+`MARK_LOD` = 5 (1,3 km + su radio), de modo que `gather_tile` y `xform_pre` descartan los trozos lejanos enteros. Cambia solo qué se transforma; lo que se ve es lo mismo.
+`build/iberia.scn`: 3.923 objetos, 394 KB.
+
+**Comprobación (PC).** Escenas 0-4 con el escenario anterior y el nuevo: **0 bytes distintos**. Nueve posiciones sobre la pista (15 m a 300 m de altura, de 3 km antes de la
+cabecera a 2 km después): 0-72 bytes de 32.768 distintos; no son rayas que desaparezcan, sino el redondeo de los vértices, que se cuantizan a 1/8 m respecto al origen de
+cada objeto (los orígenes son otros), y mueven un borde un píxel.
+
+**Resultado** (física parada, s por volcado): escena 0 **14,51 → ~11,7** (−19 %, descontada la ordenación del punto 4; por funciones, `xform_obj3` 1,90 → 1,09 s, `poly_fast` 1,31 → 0,97 s, `pj_xy` + `pj_div` 1,53 → 0,88 s,
+`gfx_fill_convex` 0,94 → 0,85 s); escenas 1, 3 y 4 sin cambio apreciable (−0,01 a −0,06 s).
+
+### Punto 4: ordenación de objetos (`view_sort_step`)
+
+**Análisis.** La inserción cuesta entre 0,2 y 0,76 s por volcado (3-5 %); en la escena 0, ~1.000 desplazamientos por orden con ~75 objetos. El coste por desplazamiento era alto porque
+**c68 resuelve la asignación de una estructura** (`items[j + 1] = items[j]`, 8 bytes) con una llamada a la biblioteca de ~400 ciclos.
+
+**Qué se hizo** (`src/view3d.c`): se copian los dos campos a mano con punteros, sin cambiar el orden (inserción estable). `view_sort_step` conserva la interfaz por trozos de 4 elementos.
+`view_sort_step` por volcado: escena 0 0,76 → 0,50 s (−34 %); escena 1 0,19 → 0,13 s; escena 4 0,14 → 0,09 s.
+
+**Probado y descartado:** ordenación por cubetas (radix LSD de tres pasadas de 6 bits sobre una clave de 18 bits, *exactamente* el mismo orden: comprobado imagen a imagen en el PC
+en 5 escenas y 6 posiciones). Con 70-130 objetos gasta **más** que la inserción: en c68 cada pasada por elemento cuesta ~200 ciclos y la lista llega casi ordenada
+(por volcado, radix contra inserción con punteros: escena 0 0,37 contra 0,50 s; escena 1 0,24 contra 0,13; escena 4 0,22 contra 0,09). Se queda la inserción.
+
+### Resumen de la ronda 3
+
+Ciclos del 68008 por volcado de 25 cuadros del bucle sin planificador (SPEED 1, física parada); ms por vista = s / 12,5.
+
+| Escena | Antes (s) | Ahora (s) | Antes (ms/vista) | Ahora (ms/vista) | |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 cabina en cabecera | 14,56 | 11,43 | 1.165 | 914 | **−21 %** |
+| 1 final a 5 km | 6,43 | 6,32 | 514 | 506 | −2 % |
+| 3 final nocturno | 9,09 | 7,26 | 727 | 581 | **−20 %** |
+| 4 reactor, 12 km | 7,10 | 7,02 | 568 | 562 | −1 % |
+
+Cambios: altímetro (22 → 11-14 ms por repintado, sin efecto en el volcado de escenas fijas pero sí en cada turno de panel), luces como filas (noche −20 %, escenario −26 %),
+marcas de pista con alcance corto (cabecera −19 %), inserción sin copia de estructuras (−0,05 a −0,26 s).
+
+**Simulador entero con el planificador** (`ND=1 PF="-DUSE_SCHED -DPROF_SCHED_RUN=1500" tools/ql_prof_all.sh sc 0 1 3 4`: 30 s de reloj con la física en marcha):
+
+| Escena | Física (pasos/s) | Vistas completas por segundo | Teclado (filas/s) |
+| --- | ---: | ---: | ---: |
+| 0 cabina en cabecera | 12,50 | **0,83** (antes 0,63) | 10,3 |
+| 1 final a 5 km | 12,50 | **1,20** (antes ~1,15) | 9,9 |
+| 3 final nocturno | 12,52 | 1,27 | 6,4 |
+| 4 reactor, 12 km | 12,52 | 1,33 | 9,1 |
+
+(Las cifras «antes» son las de la ronda anterior; las escenas 3 y 4 no se midieron con planificador entonces.)
+
+**Pendiente, por orden de rentabilidad**
+
+1. Sigue mandando el número de vértices y de objetos: en la escena 0 todavía `xform_obj3` 9,5 %, `poly_fast` 9 %, proyección 8 %; calles de rodaje, plataformas y cuadros de suelo a 2-5 km (`lod` 20 = 5 km; un cuadro de 20 m a 3 km mide 2 píxeles).
+2. De noche: `draw_lrow` 17,5 % + proyección 14 % + `sdiv32` 6,7 % + `dl_plot` 5,6 %. Margen conocido: divisiones de la fila en línea (~2 %), `dl_plot` con el recorte de la vista como
+   constantes (~3 %), y limitar luces por vista / `LIGHT_U0` (cambia lo que se ve).
+3. Relleno (`fc_hspan` + `gfx_fill_convex`) 11-21 % en las escenas 1 y 4: ya va por palabras largas; solo bajaría con menos solapes de suelo.
+4. `gfx_line_raw` 7-8 % en las escenas 1 y 4 (~220 ciclos por píxel): especializar el bucle por color y sentido (~25-35 % de esa cifra).
+5. Reunir y ordenar: `gather_tile` 3-4 % y `view_sort_step` 1-4 %: reutilizar la lista entre vistas (riesgo de «saltos» al girar).
+6. Volcado (`gfx_memcpy`, 3-5 %): solo filas modificadas (hay que comparar con lo ya volcado, que cuesta casi tanto como copiar).
+
+### Punto 5: `gfx_line_raw` especializada por color y sentido
+
+**Qué se hizo** (`src/ql68k.s`): el bucle de Bresenham pasa de 21 instrucciones por píxel a ~13. Se despacha por tabla a uno de 8 bucles (4 colores × 2 sentidos en x) generados con
+un guion: el píxel se pone con `OR` y se borra con `OR` + `EOR` (sin `btst`/`beq` por plano), y la máscara de un solo bit gira con `ROR.B`/`ROL.B`, cuyo acarreo avisa del cambio de byte (adiós a
+`tst.b` + `bne` + comparar con cero). Los pasos de error son los mismos, así que los píxeles son los de siempre.
+
+**Comprobación.** `-DASM_TEST` (marca 108): 600 líneas aleatorias (los 4 colores, verticales, horizontales, ambos sentidos) contra la definición en C sobre una pantalla con fondo no uniforme: **0 bytes distintos**.
+
+**Resultado** (física parada, por volcado): `gfx_line_raw` escena 1 0,517 → **0,368 s** (−29 %), escena 4 0,490 → **0,351 s** (−28 %); fotograma completo escena 1 6,32 → 6,16 s (−2,5 %), escena 4 7,02 → 6,87 s (−2,1 %).
+`gfx_line_xor` (agujas del panel) tiene el mismo bucle sin especializar; no se ha tocado (≈1 % del fotograma).
+
+## Análisis: ¿interesa rehacer el escenario y añadir LOD a los objetos?
+
+**Qué hay ahora.** El único LOD es *de alcance*: cada objeto tiene un `lod` (distancia máxima, en 256 m) y, según su escala `U`, se diezman las luces y se quitan los contornos. No hay
+versiones simplificadas: un objeto cuesta lo mismo a 500 m que en el límite de su alcance.
+
+**Coste por elemento (escena 0, 68008).** Fijo por objeto ≈ 7-8 mil ciclos (`xform_pre` ~2,6 k, `draw_obj` ~1,6 k, reunir y ordenar ~3 k) y por vértice ≈ 3 mil (`xform_obj3` 1,4 k + proyección 0,9 k +
+`poly_fast`/recorte); un cuadro de 4 vértices cuesta ~20 k ciclos aunque ocupe tres píxeles. El relleno de la vista (`gfx_hspan`/`view_sky`) son ~35 k de los ~46 k píxeles por vista;
+lo que pintan los objetos de suelo y montaña son 13-17 k píxeles en las escenas 1 y 4 y ~38 k en cabecera.
+
+**Qué se dibuja** (PC, `-DOBJ_DUMP`, una vista; tras los puntos anteriores):
+
+| Escena | Suelo de 4 vértices | Suelo > 4 vértices | Sólidos cóncavos (montañas, manzanas) | Líneas | Luces |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 cabecera | 38 obj / 152 v | 18 obj / 384 v | 20 obj / 334 v / 242 caras | 16 obj | 10 obj |
+| 1 final a 5 km | 12 / 48 | — | 14 / 140 / 116 | 22 | 12 |
+| 4 reactor | 6 / 24 | — | 12 / 108 / 96 | 18 | 12 |
+
+**Conclusiones**
+
+1. **Las escenas 1 y 4 no mejoran con LOD**: tienen ~280 vértices y 60 objetos. Lo que cuesta es relleno por filas (~18 ciclos por píxel, dominado por el preámbulo de cada fila de cada polígono grande) y
+   líneas largas (carreteras y ríos de 10 km de radio). Menos vértices no lo tocan. Lo único útil ahí es reducir solapes de suelo (menos polígonos grandes superpuestos) o recortar líneas lejanas.
+2. **La cabecera (escena 0) y la noche sí**: ahí mandan vértices y objetos. Hay tres fuentes de ahorro razonables, de mayor a menor rentabilidad estimada (sobre el fotograma de la escena 0):
+   * **LOD por vértices en sólidos cóncavos (manzanas urbanas y montañas)** — ~104 vértices de manzanas a 3,6-5 km. Versión lejana = solo los techos (los vértices altos primero en la lista, una `nv_lejos` y
+     un `nf_lejos` en la cabecera del objeto; se transforman solo esos vértices y se pintan solo esas caras), a partir de ~3 km. Cabe en el formato actual (un byte más por objeto o un bit
+     en `flags` y caras ordenadas techo-primero). Ahorro estimado 3-4 % en cabecera.
+   * **Fusionar suelo pequeño del mismo aeropuerto** (38 cuadros de 4 vértices: calles de rodaje, plataformas) en unos 8 objetos por zona: quita ~30 × 7,5 mil ciclos ≈ **3 %** de la cabecera, a costa de
+     perder el descarte fino (el objeto fusionado se transforma entero) → conviene fusionar solo los que están a menos de 300 m entre sí.
+   * **Descarte por tamaño proyectado** para suelo (hoy solo para sólidos: `MIN_PX`): un cuadro con radio · `fx` / z < ~2 píxeles no se dibuja. En el escenario actual ningún cuadro de suelo cae
+     por debajo (radio ≥ 76 m a ≤ 5 km = ≥ 5 píxeles), así que no aporta hasta que haya más detalle.
+3. **Rehacer el escenario entero no compensa**: los tres cambios son de generador (`mkscen.py`, como ya se hizo con luces y marcas) más una cabecera de LOD, no una reescritura. Lo que sí tendría
+   sentido es añadir un **presupuesto por tesela** en `mkscen.py` (aviso si una tesela supera N vértices de suelo o N objetos), porque el límite real es `MAXITEMS` = 256 y la
+   ordenación y reunión son O(objetos).
+4. **Lo que no hay que hacer**: LOD discreto de las montañas (9 vértices, 8 caras: ya son lo mínimo; su coste es el relleno de triángulos grandes, que ninguna versión simplificada reduce) ni LOD de edificios
+   pequeños (`SOLID_LOD` 5/8 y `MIN_PX` ya los descartan lejos).
+
+**Recomendación:** hacer, por este orden, (a) LOD «solo techos» para manzanas y torres lejanas, (b) fusión local de suelo pequeño de aeropuerto, y dejar el presupuesto por tesela como comprobación del generador.
+Ganancia conjunta esperada: ~6-7 % en cabecera, ~0 en las demás escenas; no cambia lo que se ve más allá de que las paredes lejanas no se dibujan.
+
+### Punto 6: manzanas y torres lejanas «solo techos», y fusión de suelo pequeño
+
+**LOD de solo techos** (`tools/mkscen.py`, `src/world.c`, `src/world.h`, `src/view3d.c`). La cabecera de cada objeto pasa de 20 a 22 bytes: `nvf` y `nff` (vértices y caras de la versión lejana; 0 = no hay). `Obj.pack`
+reordena los sólidos que tienen techos (`box(..., roof=True)`: edificios, hangares, torres y las manzanas de ciudad): **los techos van los primeros en la lista de caras y sus vértices los primeros
+en la de vértices**, de modo que la versión lejana es un prefijo. `xform_obj` decide por la distancia (`ROOF_DIST` = 3.000 m, máximo de |dx|, |dy| al origen del objeto): lejos transforma solo `nvf`
+vértices y `draw_obj`/`draw_sorted` pintan solo `nff` caras (`obj_nf`). Una manzana de 10 edificios pasa de 80 vértices y 50 caras a 40 y 10; una torre, de 8 y 5 a 4 y 1. La colisión
+(`world_hit`) usa todos los vértices y no cambia. `tools/mapa_scn.py` lee el formato nuevo. Hay que regenerar los escenarios.
+
+**Fusión de suelo** (`Scen.merge_ground`, al escribir). Objetos de suelo pequeños (radio ≤ 400 m, ≤ 16 vértices, sin agua) de la misma tesela, mismo `lod` y misma altura, a ≤ 400 m del primero del grupo, se
+unen en un solo objeto (hasta 80 vértices). **La forma no cambia**: las caras conservan el orden de pintado de origen (radio del objeto, de mayor a menor) y no se fusiona un grupo si otro
+suelo cercano, de otro relleno, tiene un radio entre el de sus miembros y el del grupo (su orden relativo cambiaría). Resultado en Iberia: solo **21 objetos → 10**: de los 145 cuadros pequeños, la mayoría están aislados
+a más de 400 m de otro del mismo `lod`, y separar más los grupos los hace chocar con esa regla (con 900 m salían menos fusiones, no más). Escenario: 3.912 objetos, 402 KB (+8 KB por la cabecera).
+
+**Comprobación (PC).** Escenas 0-4 con el escenario anterior y el nuevo: 0 bytes distintos solo con la fusión; con la fusión **y** los techos, 9 y 4 bytes (escenas 0 y 1) y 0 en las demás.
+En nueve posiciones de la pista y del entorno: la fusión cambia 0-2 bytes (redondeo de vértices); los techos 0-50 bytes de 32.768 (rendijas de pared de edificios a > 3 km, p. ej. a 1,5 km de la cabecera a 200 m de altura: 50 bytes en 8 filas).
+`hosttest`, `iberiatest` y `figuras` pasan.
+
+**Resultado** (física parada, s por volcado):
+
+| Escena | Antes | Ahora | |
+| --- | ---: | ---: | ---: |
+| 0 cabina en cabecera | 11,43 | **10,40** | −9 % (≈ −0,12 s de ellos por el punto 5) |
+| 1 final a 5 km | 6,16 | 6,07 | −1,5 % |
+| 3 final nocturno | 7,26 | 7,27 | 0 |
+| 4 reactor, 12 km | 6,87 | 6,88 | 0 |
+
+Escena 0 por funciones: `poly_fast` 0,97 → 0,70 s, `xform_obj3` 1,09 → 0,99, `pj_xy` 0,52 → 0,47. Lo estimado era 6-7 % en cabecera: los techos aportan lo previsto (~7 %); la fusión, casi nada (−11 objetos de ~110), porque el suelo pequeño del escenario está disperso.

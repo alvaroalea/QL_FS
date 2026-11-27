@@ -24,7 +24,7 @@ for t in range(ntx * nty):
     p += 2
     for _ in range(n):
         typ, fl, lod, vsh, ox_, oy_, oz, r, nv, nf, fb = struct.unpack(">BBBBiihHBBH", d[p:p + 20])
-        p += 20
+        p += 22
         vs = [struct.unpack(">hhh", d[p + 6 * i:p + 6 * i + 6]) for i in range(nv)]
         p += nv * 6
         fbytes = d[p:p + fb]
@@ -35,6 +35,8 @@ for t in range(ntx * nty):
             k, a = fbytes[q], fbytes[q + 1]
             idx = list(fbytes[q + 2:q + 2 + k])
             q += 2 + k
+            if typ == 3:                      # luces: las filas (OF_ROWS) llevan el numero de luces como tercer indice
+                continue
             pts = [P(*V[i]) for i in idx]
             if typ == 0 and fl & 2:
                 dr.polygon(pts, fill=(40, 90, 200))

@@ -7,6 +7,15 @@ int u_num(char *b, s32 v, int w, char pad)
     char t[12];
     int n = 0, neg = v < 0, i, k = 0;
     if (neg) v = -v;
+    if (v < 65536L) {                             /* casi siempre: divisiones de 16 bits (DIVU), no las de 32 de la biblioteca */
+        u16 a = (u16)v, q;
+        do { q = a / 10; t[n++] = (char)('0' + (a - q * 10)); a = q; } while (a);
+        if (neg) { if (pad == '0') { b[k++] = '-'; w--; } else t[n++] = '-'; }
+        for (i = n; i < w; i++) b[k++] = pad;
+        while (n) b[k++] = t[--n];
+        b[k] = 0;
+        return k;
+    }
     do { t[n++] = (char)('0' + v % 10); v /= 10; } while (v && n < 11);
     if (neg) { if (pad == '0') { b[k++] = '-'; w--; } else t[n++] = '-'; }
     for (i = n; i < w; i++) b[k++] = pad;

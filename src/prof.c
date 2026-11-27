@@ -8,6 +8,7 @@
 #include "sound.h"
 #include "qfs_prof.h"
 #include <stdlib.h>
+#include <string.h>
 
 #ifndef PROF_SCENE
 #define PROF_SCENE 1
@@ -28,6 +29,9 @@
 #define PROF_DUMPS 4
 #endif
 
+#ifdef PROF_ALT
+long prof_alt_redo[2];
+#endif
 extern int main(int argc, char **argv);
 
 #ifdef FXDIV_TEST          /* compara fxdiv (ensamblador) con la version C de referencia: marca 1 = discrepancias (bajo, alto), 2 = pares probados */
@@ -113,6 +117,7 @@ static void rep(int id, long bad, long n)
     PROF_MARK(100 + id); PROF_MARK((int)(bad & 255)); PROF_MARK((int)((bad >> 8) & 255)); PROF_MARK((int)((n >> 8) & 255));
 }
 extern s32 sdiv32(s32 a, s32 b);
+extern void draw_lrow(Surface *s, const s32 *p0, const s32 *p1, int cnt, int shift, s32 near_z, int fx, int fy, int col, int dbl);
 static void asm_test(void)
 {
     long i, bad;
@@ -218,6 +223,62 @@ static void asm_test(void)
         if (!ok) bad++;
     }
     rep(6, bad, 120);
+    bad = 0;
+    gfx_init_surface(&s1, b1, 40); gfx_init_surface(&s2, b2, 40);
+    gfx_clip(&s1, 0, 0, 479, 39); gfx_clip(&s2, 0, 0, 479, 39);
+    for (i = 0; i < 300; i++) {                   /* draw_lrow (ensamblador) contra la referencia en C (la misma aritmetica que view3d.c) */
+        s32 p0[3], p1[3], x, y, z, dx = 0, dy = 0, dz = 0, t[3], o[2], nz = 1 + (s32)(rr() % 20);
+        int cnt = 1 + (int)(rr() % 60), shift = (int)(rr() % 4), dbl = (int)(rr() & 1), col = (int)(rr() & 3), fx = 100 + (int)(rr() % 700), fy = 100 + (int)(rr() % 500), k, n;
+        long q;
+        for (k = 0; k < 3; k++) { p0[k] = rv(14) + (k == 2 ? 6000 : 0); p1[k] = rv(14) + (k == 2 ? 6000 : 0); }
+        if (i & 4) { p0[2] = rv(5); p1[2] = rv(5) + 40; }          /* cruzan el plano cercano */
+        if (i & 8) { p0[0] = rv(16); p1[1] = rv(16); }            /* vertices grandes */
+        memset(b1, 0, sizeof b1); memset(b2, 0, sizeof b2);
+        draw_lrow(&s1, p0, p1, cnt, shift, nz, fx, fy, col, dbl);
+        n = (cnt + (1 << shift) - 1) >> shift;
+        if (!(p0[2] < nz && p1[2] < nz)) {
+            x = (s32)((u32)p0[0] << 12); y = (s32)((u32)p0[1] << 12); z = (s32)((u32)p0[2] << 12);
+            if (cnt > 1) {
+                dx = sdiv32((s32)((u32)(p1[0] - p0[0]) << 12), cnt - 1); dy = sdiv32((s32)((u32)(p1[1] - p0[1]) << 12), cnt - 1);
+                dz = sdiv32((s32)((u32)(p1[2] - p0[2]) << 12), cnt - 1);
+                dx = (s32)((u32)dx << shift); dy = (s32)((u32)dy << shift); dz = (s32)((u32)dz << shift);
+            }
+            for (k = 0; k < n; k++) {
+                t[2] = z >> 12;
+                if (t[2] >= nz) {
+                    t[0] = x >> 12; t[1] = y >> 12; ref_proj(t, fx, fy, o);
+                    gfx_pixel(&s2, (int)o[0], (int)o[1], col);
+                    if (dbl) gfx_pixel(&s2, (int)o[0] + 1, (int)o[1], col);
+                }
+                x = (s32)((u32)x + (u32)dx); y = (s32)((u32)y + (u32)dy); z = (s32)((u32)z + (u32)dz);
+            }
+        }
+        for (q = 0; q < 128L * 40; q++) if (b1[q] != b2[q]) bad++;
+    }
+    rep(7, bad, 300);
+    bad = 0;
+    for (i = 0; i < 600; i++) {                   /* gfx_line_raw (bucle especializado por color y sentido) contra la definicion en C */
+        s32 x0 = rr() % 470, y0 = rr() % 38, x1 = rr() % 470, y1 = rr() % 38, dx = x1 - x0, dy = y1 - y0, sx = 1, sy = 128, err, e2, n;
+        int col = (int)(i & 3);
+        long q;
+        u8 *p, bit;
+        if (i & 4) { x1 = x0; dx = 0; dy = y1 - y0; }          /* verticales */
+        if (i & 8) { y1 = y0; dy = 0; dx = x1 - x0; }          /* horizontales */
+        memset(b1, 0x5A, sizeof b1); memset(b2, 0x5A, sizeof b2);
+        gfx_line_raw(b1, x0, y0, x1, y1, col);
+        if (dx < 0) { dx = -dx; sx = -1; }
+        if (dy < 0) { dy = -dy; sy = -128; }
+        p = b2 + y0 * 128 + ((x0 >> 3) << 1); bit = (u8)(0x80 >> (x0 & 7)); err = dx - dy; n = (dx > dy ? dx : dy) + 1;
+        while (n--) {
+            if (col & 2) p[0] |= bit; else p[0] &= (u8)~bit;
+            if (col & 1) p[1] |= bit; else p[1] &= (u8)~bit;
+            e2 = err << 1;
+            if (e2 > -dy) { err -= dy; if (sx > 0) { bit >>= 1; if (!bit) { bit = 0x80; p += 2; } } else { bit <<= 1; if (!bit) { bit = 0x01; p -= 2; } } }
+            if (e2 < dx) { err += dx; p += sy; }
+        }
+        for (q = 0; q < 128L * 40; q++) if (b1[q] != b2[q]) bad++;
+    }
+    rep(8, bad, 600);
 }
 #endif
 
@@ -289,6 +350,7 @@ void prof_run(void)
         sim_vjob_wire = PROF_WIRE;
         for (w = 0; w < 400; w++) sim_frame();   /* calienta la cache de teselas */
         sim.fps_v = 0; sim.frames = 0;
+        PROF_DUMP(99);
         k = sim.nsteps;
         t0 = plat_ticks();
         PROF_MARK(240);
@@ -309,6 +371,35 @@ void prof_run(void)
         bench_run();
         world_close(&sim.w);
         snd_off();
+        return;
+    }
+#endif
+#ifdef PROF_LROW                                /* solo draw_lrow: 200 filas de 1, 2 y 21 luces (shift 0) y 21 luces con shift 2, en cuatro volcados */
+    {
+        static s32 pa[3] = { -3000L, 500L, 8000L }, pb[3] = { 3000L, 500L, 9000L };
+        extern void draw_lrow(Surface *s, const s32 *p0, const s32 *p1, int cnt, int shift, s32 near_z, int fx, int fy, int col, int dbl);
+        Surface sf;
+        gfx_init_surface(&sf, sim.scr, 96);
+        PROF_DUMP(99);
+        for (k = 0; k < 4; k++) {
+            for (i = 0; i < 200; i++) draw_lrow(&sf, pa, pb, k == 0 ? 1 : k == 1 ? 2 : 21, k == 3 ? 2 : 0, 1, 320, 300, 3, 0);
+            PROF_DUMP(k);
+        }
+        return;
+    }
+#endif
+#ifdef PROF_ALT                                 /* solo el altimetro: PROF_ALT repintados con la altitud subiendo 10 pies cada vez (z en Q8 m) */
+    {
+        PanelInfo pi;
+        memset(&pi, 0, sizeof pi); pi.status = "";
+        panel_piece(sim.scr, &sim.f, &sim.r, &sim.atc, &pi, 1);
+        PROF_DUMP(99);
+        for (k = 0; k < 3; k++) {                /* rondas desde 500 pies (agujas fuera del texto), 3800 (la de 10000 pies cruza el texto), 25000 */
+            sim.f.z = (k == 0 ? 500L : k == 1 ? 3800L : 25000L) * 78L;
+            for (i = 0; i < PROF_ALT; i++) { sim.f.z += 780; panel_piece(sim.scr, &sim.f, &sim.r, &sim.atc, &pi, 1); }
+            PROF_MARK(200 + k); PROF_MARK((int)prof_alt_redo[0] & 255); PROF_MARK((int)prof_alt_redo[1] & 255);
+            PROF_DUMP(k);
+        }
         return;
     }
 #endif

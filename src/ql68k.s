@@ -28,6 +28,39 @@
 ; ---------------------------------------------------------------- fxmul
 ; s32 fxmul(s32 a, s32 b)
 _fxmul:
+        ; via rapida (casi todas las llamadas: uno de los operandos cabe en 16 bits): solo d0-d2 y a0, sin salvar nada
+        move.l  4(a7),d0                ; a
+        move.l  8(a7),d1                ; b
+        move.l  d0,d2
+        eor.l   d1,d2
+        move.l  d2,a0                   ; signo del resultado (bit 31)
+        tst.l   d0
+        bpl     fq_1
+        neg.l   d0
+fq_1:   tst.l   d1
+        bpl     fq_2
+        neg.l   d1
+fq_2:   move.l  d1,d2
+        swap    d2
+        tst.w   d2
+        beq     fq_f                    ; |b| < 65536
+        move.l  d0,d2
+        swap    d2
+        tst.w   d2
+        bne     fm_slow                 ; ninguno cabe en 16 bits: camino completo
+        exg     d0,d1                   ; |a| < 65536: se cambian
+fq_f:   move.l  d0,d2                   ; (a*b)>>16 = ah*bl + ((al*bl)>>16): dos MULU
+        swap    d2
+        mulu    d1,d2                   ; ah*bl
+        mulu    d1,d0                   ; al*bl
+        clr.w   d0
+        swap    d0
+        add.l   d2,d0
+        move.l  a0,d2
+        bpl     fq_r
+        neg.l   d0
+fq_r:   rts
+fm_slow:
         movem.l d2-d6,-(a7)             ; 20 bytes
         move.l  24(a7),d0               ; a
         move.l  28(a7),d1               ; b
@@ -280,43 +313,170 @@ ln_2:   moveq   #7,d4
 ln_3:   neg.l   d3                      ; d3 = -dy
         move.l  d2,d1
         add.l   d3,d1                   ; err = dx - dy
-ln_loop:
-        btst    #1,d6
-        beq     ln_g0
+        ; el bucle se especializa por color (3 blanco, 2 verde, 1 rojo, 0 negro: el pixel se pone con OR y se borra con OR + EOR)
+        ; y por sentido en x (d7 = 1: hacia la izquierda). La mascara d0 tiene un solo bit: ROR/ROL la gira y el acarreo avisa del cambio
+        ; de byte (en el sentido de la derecha el bit sale por abajo; el bit 0x80 aparece solo)
+        and.w   #3,d6
+        move.w  d6,d4
+        add.w   d4,d4
+        add.w   d7,d4                   ; 2*color + sentido
+        add.w   d4,d4
+        move.w  ln_tab(pc,d4.w),d4
+        jmp     ln_tab(pc,d4.w)
+ln_tab: dc.w    ln_0r-ln_tab,ln_0l-ln_tab,ln_1r-ln_tab,ln_1l-ln_tab,ln_2r-ln_tab,ln_2l-ln_tab,ln_3r-ln_tab,ln_3l-ln_tab
+ln_0r:
+ln_0r_p:
         or.b    d0,(a0)
-        bra     ln_g1
-ln_g0:  move.b  d0,d4
-        not.b   d4
-        and.b   d4,(a0)
-ln_g1:  btst    #0,d6
-        beq     ln_r0
+        eor.b   d0,(a0)
         or.b    d0,1(a0)
-        bra     ln_r1
-ln_r0:  move.b  d0,d4
-        not.b   d4
-        and.b   d4,1(a0)
-ln_r1:  move.l  d1,d4
-        add.l   d4,d4                   ; e2 = 2*err
+        eor.b   d0,1(a0)
+        move.l  d1,d4
+        add.l   d4,d4
         cmp.l   d3,d4
-        ble     ln_nx                   ; e2 <= -dy: no avanza x
-        add.l   d3,d1                   ; err -= dy
-        tst.b   d7
-        bne     ln_left
-        lsr.b   #1,d0
-        bne     ln_nx
-        move.b  #$80,d0
+        ble     ln_0r_a
+        add.l   d3,d1
+        ror.b #1,d0
+        bcc     ln_0r_a
         addq.l  #2,a0
-        bra     ln_nx
-ln_left:
-        lsl.b   #1,d0
-        bne     ln_nx
-        moveq   #1,d0
-        subq.l  #2,a0
-ln_nx:  cmp.l   d2,d4
-        bge     ln_ny                   ; e2 >= dx: no avanza y
-        add.l   d2,d1                   ; err += dx
+ln_0r_a:   cmp.l   d2,d4
+        bge     ln_0r_b
+        add.l   d2,d1
         adda.l  a2,a0
-ln_ny:  dbra    d5,ln_loop
+ln_0r_b:   dbra    d5,ln_0r_p
+        bra     ln_end
+ln_0l:
+ln_0l_p:
+        or.b    d0,(a0)
+        eor.b   d0,(a0)
+        or.b    d0,1(a0)
+        eor.b   d0,1(a0)
+        move.l  d1,d4
+        add.l   d4,d4
+        cmp.l   d3,d4
+        ble     ln_0l_a
+        add.l   d3,d1
+        rol.b #1,d0
+        bcc     ln_0l_a
+        subq.l  #2,a0
+ln_0l_a:   cmp.l   d2,d4
+        bge     ln_0l_b
+        add.l   d2,d1
+        adda.l  a2,a0
+ln_0l_b:   dbra    d5,ln_0l_p
+        bra     ln_end
+ln_1r:
+ln_1r_p:
+        or.b    d0,(a0)
+        eor.b   d0,(a0)
+        or.b    d0,1(a0)
+        move.l  d1,d4
+        add.l   d4,d4
+        cmp.l   d3,d4
+        ble     ln_1r_a
+        add.l   d3,d1
+        ror.b #1,d0
+        bcc     ln_1r_a
+        addq.l  #2,a0
+ln_1r_a:   cmp.l   d2,d4
+        bge     ln_1r_b
+        add.l   d2,d1
+        adda.l  a2,a0
+ln_1r_b:   dbra    d5,ln_1r_p
+        bra     ln_end
+ln_1l:
+ln_1l_p:
+        or.b    d0,(a0)
+        eor.b   d0,(a0)
+        or.b    d0,1(a0)
+        move.l  d1,d4
+        add.l   d4,d4
+        cmp.l   d3,d4
+        ble     ln_1l_a
+        add.l   d3,d1
+        rol.b #1,d0
+        bcc     ln_1l_a
+        subq.l  #2,a0
+ln_1l_a:   cmp.l   d2,d4
+        bge     ln_1l_b
+        add.l   d2,d1
+        adda.l  a2,a0
+ln_1l_b:   dbra    d5,ln_1l_p
+        bra     ln_end
+ln_2r:
+ln_2r_p:
+        or.b    d0,(a0)
+        or.b    d0,1(a0)
+        eor.b   d0,1(a0)
+        move.l  d1,d4
+        add.l   d4,d4
+        cmp.l   d3,d4
+        ble     ln_2r_a
+        add.l   d3,d1
+        ror.b #1,d0
+        bcc     ln_2r_a
+        addq.l  #2,a0
+ln_2r_a:   cmp.l   d2,d4
+        bge     ln_2r_b
+        add.l   d2,d1
+        adda.l  a2,a0
+ln_2r_b:   dbra    d5,ln_2r_p
+        bra     ln_end
+ln_2l:
+ln_2l_p:
+        or.b    d0,(a0)
+        or.b    d0,1(a0)
+        eor.b   d0,1(a0)
+        move.l  d1,d4
+        add.l   d4,d4
+        cmp.l   d3,d4
+        ble     ln_2l_a
+        add.l   d3,d1
+        rol.b #1,d0
+        bcc     ln_2l_a
+        subq.l  #2,a0
+ln_2l_a:   cmp.l   d2,d4
+        bge     ln_2l_b
+        add.l   d2,d1
+        adda.l  a2,a0
+ln_2l_b:   dbra    d5,ln_2l_p
+        bra     ln_end
+ln_3r:
+ln_3r_p:
+        or.b    d0,(a0)
+        or.b    d0,1(a0)
+        move.l  d1,d4
+        add.l   d4,d4
+        cmp.l   d3,d4
+        ble     ln_3r_a
+        add.l   d3,d1
+        ror.b #1,d0
+        bcc     ln_3r_a
+        addq.l  #2,a0
+ln_3r_a:   cmp.l   d2,d4
+        bge     ln_3r_b
+        add.l   d2,d1
+        adda.l  a2,a0
+ln_3r_b:   dbra    d5,ln_3r_p
+        bra     ln_end
+ln_3l:
+ln_3l_p:
+        or.b    d0,(a0)
+        or.b    d0,1(a0)
+        move.l  d1,d4
+        add.l   d4,d4
+        cmp.l   d3,d4
+        ble     ln_3l_a
+        add.l   d3,d1
+        rol.b #1,d0
+        bcc     ln_3l_a
+        subq.l  #2,a0
+ln_3l_a:   cmp.l   d2,d4
+        bge     ln_3l_b
+        add.l   d2,d1
+        adda.l  a2,a0
+ln_3l_b:   dbra    d5,ln_3l_p
+        bra     ln_end
+ln_end:
         movem.l (a7)+,d2-d7/a2
         rts
 
@@ -536,6 +696,7 @@ _pj_xy:
         move.l  8(a0),d2                ; z
         move.l  (a0),d0                 ; x
         move.l  4(a0),d1                ; y
+_pj_xy_r:                               ; entrada con x, y, z ya en d0, d1, d2 (draw_lrow)
         cmp.l   #32767,d2
         bgt     pj_sh
         cmp.l   #32767,d0
@@ -1188,6 +1349,100 @@ dp_r:   btst    #0,d2
 dp_r0:  not.b   d3
         and.b   d3,1(a3)
 dp_ret: rts
+
+; ---------------------------------------------------------------- draw_lrow
+; void draw_lrow(Surface *s, const s32 *p0, const s32 *p1, int cnt, int shift, s32 near_z, int fx, int fy, int col, int dbl)
+;   Fila de cnt luces equiespaciadas entre los vertices ya transformados p0 y p1 (espacio de camara). Se pintan las de indice
+;   0, 2^shift, 2*2^shift... < cnt, interpoladas en coordenadas de camara con 12 bits de fraccion (x = x0 + k*dx) y proyectadas una a
+;   una (la fila es recta en 3D, asi que la interpolacion es exacta salvo el redondeo); las que quedan detras del plano cercano
+;   no se pintan. Si los dos extremos estan detras, nada. Un punto de color col (dos si dbl).
+        .globl  _draw_lrow
+        .extern _sdiv32
+_draw_lrow:
+        movem.l d2-d7/a2-a6,-(a7)       ; 44 bytes
+        lea     -24(a7),a7              ; X, Y, Z (0, 4, 8) y dX, dY, dZ (12, 16, 20), todos con 12 bits de fraccion
+        move.l  72(a7),a2               ; s
+        move.l  76(a7),a0               ; p0
+        move.l  80(a7),a1               ; p1
+        move.l  92(a7),d6               ; near_z
+        move.l  96(a7),d4               ; fx
+        move.l  100(a7),d5              ; fy
+        move.l  104(a7),a6              ; col
+        move.l  8(a0),d0
+        cmp.l   d6,d0
+        bge     lr_ok
+        cmp.l   8(a1),d6
+        bgt     lr_end                  ; los dos extremos detras del plano cercano
+lr_ok:  moveq   #12,d3
+        move.l  (a0),d0
+        asl.l   d3,d0
+        move.l  d0,(a7)
+        move.l  4(a0),d0
+        asl.l   d3,d0
+        move.l  d0,4(a7)
+        move.l  8(a0),d0
+        asl.l   d3,d0
+        move.l  d0,8(a7)
+        moveq   #0,d0
+        move.l  d0,12(a7)
+        move.l  d0,16(a7)
+        move.l  d0,20(a7)
+        move.l  84(a7),d7               ; cnt
+        subq.l  #1,d7                   ; n = cnt - 1 huecos
+        ble     lr_nod
+        moveq   #0,d2                   ; i: 0, 1, 2 = x, y, z
+lr_dl:  move.l  d2,d3
+        asl.l   #2,d3                   ; 4*i
+        move.l  0(a1,d3.l),d0
+        sub.l   0(a0,d3.l),d0           ; p1 - p0
+        moveq   #12,d1
+        asl.l   d1,d0
+        movem.l d2-d3/a0-a1,-(a7)
+        move.l  d7,-(a7)
+        move.l  d0,-(a7)
+        jsr     _sdiv32
+        addq.l  #8,a7
+        movem.l (a7)+,d2-d3/a0-a1
+        move.l  88(a7),d1               ; shift
+        asl.l   d1,d0                   ; paso de 2^shift luces (si desborda, es la ultima suma, que no se usa)
+        move.l  d0,12(a7,d3.l)
+        addq.l  #1,d2
+        cmp.l   #3,d2
+        blt     lr_dl
+lr_nod: move.l  84(a7),d7               ; cuantas se pintan: (cnt + 2^shift - 1) >> shift
+        moveq   #1,d0
+        move.l  88(a7),d1
+        asl.l   d1,d0
+        subq.l  #1,d0
+        add.l   d0,d7
+        lsr.l   d1,d7
+        subq.l  #1,d7                   ; para dbra
+        bmi     lr_end
+lr_lp:  moveq   #12,d3
+        move.l  8(a7),d2
+        asr.l   d3,d2                   ; z
+        cmp.l   d6,d2
+        blt     lr_nx
+        move.l  (a7),d0
+        asr.l   d3,d0                   ; x
+        move.l  4(a7),d1
+        asr.l   d3,d1                   ; y
+        bsr     _pj_xy_r
+        bsr     _dl_plot
+        tst.l   108(a7)
+        beq     lr_nx
+        addq.l  #1,d0
+        bsr     _dl_plot
+lr_nx:  move.l  12(a7),d0
+        add.l   d0,(a7)
+        move.l  16(a7),d0
+        add.l   d0,4(a7)
+        move.l  20(a7),d0
+        add.l   d0,8(a7)
+        dbra    d7,lr_lp
+lr_end: lea     24(a7),a7
+        movem.l (a7)+,d2-d7/a2-a6
+        rts
 
 ; ---------------------------------------------------------------- poly_fast
 ; int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy, s32 *out, int cull)

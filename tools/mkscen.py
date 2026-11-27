@@ -25,7 +25,7 @@ FILLS = dict(NEGRO=0, ROJO=1, VERDE=2, BLANCO=3, GRIS=4, AGUA=5, VERDEOSC=6, NAR
 C_BLACK, C_RED, C_GREEN, C_WHITE = 0, 1, 2, 3
 FA_OUTLINE, FA_NOFILL = 0x40, 0x80
 OBJ_GROUND, OBJ_LINES, OBJ_SOLID, OBJ_LIGHTS = 0, 1, 2, 3
-OF_HIT, OF_WATER, OF_NIGHT, OF_DAYLIGHT, OF_MOUNTAIN, OF_SORT, OF_PAPI = 1, 2, 4, 8, 16, 32, 64
+OF_HIT, OF_WATER, OF_NIGHT, OF_DAYLIGHT, OF_MOUNTAIN, OF_SORT, OF_PAPI, OF_ROWS = 1, 2, 4, 8, 16, 32, 64, 128
 NAV_VOR, NAV_VORDME, NAV_NDB, NAV_ILS, NAV_OM, NAV_MM, NAV_IM, NAV_GS = 1, 2, 3, 4, 5, 6, 7, 8
 
 
@@ -40,26 +40,47 @@ class Obj:
     def __init__(s, typ, ox, oy, oz=0, flags=0, lod=60):
         s.typ, s.ox, s.oy, s.oz, s.flags, s.lod = typ, ox, oy, oz, flags, lod
         s.v, s.f = [], []
+        s.roofs = []            # indices de las caras que son techos (version lejana de un solido: solo techos)
 
     def vert(s, x, y, z=0.0):
         """x,y absolutos (m); z relativo al origen"""
         s.v.append((x - s.ox, y - s.oy, z))
         return len(s.v) - 1
 
-    def face(s, a, idx):
+    def face(s, a, idx, roof=False):
+        if roof:
+            s.roofs.append(len(s.f))
         s.f.append((a, list(idx)))
 
     def pack(s):
         assert len(s.v) <= 96, "objeto con demasiados vertices"
+        nvf, nff = getattr(s, "far", (0, 0))
+        if s.roofs and s.typ == OBJ_SOLID:
+            # version lejana (solo techos): los techos van los primeros en la lista de caras y sus vertices los primeros en la de vertices;
+            # el motor, lejos, transforma solo los nvf primeros vertices y pinta solo las nff primeras caras
+            order = list(s.roofs) + [i for i in range(len(s.f)) if i not in s.roofs]
+            front = []
+            for i in s.roofs:
+                for k in s.f[i][1]:
+                    if k not in front:
+                        front.append(k)
+            perm = front + [k for k in range(len(s.v)) if k not in front]
+            new_of = {old: new for new, old in enumerate(perm)}
+            s.v = [s.v[k] for k in perm]
+            s.f = [(s.f[i][0], [new_of[k] for k in s.f[i][1]]) for i in order]
+            nvf, nff = len(front), len(s.roofs)
+            s.roofs = []
+            s.far = (nvf, nff)
+            assert nvf < 256 and nff < 256
         m = max([max(abs(a), abs(b), abs(c)) for a, b, c in s.v] + [1]) * 8
         vsh = 0
         while (m / (1 << vsh)) > 32000:
             vsh += 1
         r = int(max([math.hypot(a, b) for a, b, c in s.v] + [1]) + 1)
         fb = b"".join(bytes([len(i), a] + i) for a, i in s.f)
-        h = struct.pack(">BBBBiihHBBH", s.typ, s.flags, min(255, s.lod), vsh,
+        h = struct.pack(">BBBBiihHBBHBB", s.typ, s.flags, min(255, s.lod), vsh,
                         int(round(s.ox)), int(round(s.oy)), int(round(s.oz)), min(65535, r),
-                        len(s.v), len(s.f), len(fb))
+                        len(s.v), len(s.f), len(fb), nvf, nff)
         vb = b"".join(struct.pack(">hhh", *[int(round(c * 8 / (1 << vsh))) for c in v]) for v in s.v)
         if len(fb) & 1:
             fb += b"\0"
@@ -86,7 +107,7 @@ class Scen:
         for i in range(4):  # paredes (antihorario visto desde fuera)
             j = (i + 1) % 4
             o.face(attr(wall, C_BLACK), [b[i], b[j], t[j], t[i]])
-        o.face(attr(roof, C_BLACK), [t[0], t[1], t[2], t[3]])
+        o.face(attr(roof, C_BLACK), [t[0], t[1], t[2], t[3]], roof=True)
         if obj is None:
             s.objs.append(o)
         return o
@@ -102,15 +123,35 @@ class Scen:
             o.face(color, idx)
             s.objs.append(o)
 
+    def lrows(s, rows, color=None, lod=80, flags=0):
+        """filas de luces (OF_ROWS): rows = lista de (p0, p1, n[, color]) con p = (x, y, z); n luces equiespaciadas de p0 a p1 (n = 1: solo p0).
+        Cada fila son 2 vertices (los extremos) y una cara [3, color, a, b, n]; el motor proyecta solo los extremos e interpola en
+        pantalla. Se reparten en objetos de <= 48 filas (96 vertices)."""
+        rows = [r for r in rows if r[2] >= 1]
+        for k in range(0, len(rows), 48):
+            chunk = rows[k:k + 48]
+            cx = sum((r[0][0] + r[1][0]) / 2 for r in chunk) / len(chunk)
+            cy = sum((r[0][1] + r[1][1]) / 2 for r in chunk) / len(chunk)
+            o = Obj(OBJ_LIGHTS, cx, cy, s.elev, flags | OF_ROWS, lod)
+            for r in chunk:
+                a = o.vert(*r[0])
+                b = o.vert(*(r[1] if r[2] > 1 else r[0]))
+                o.face(r[3] if len(r) > 3 else color, [a, b, min(255, r[2])])
+            s.objs.append(o)
+
+    MARK_DASHES = 5      # rayas del eje de pista por objeto
+    MARK_LOD = 5         # alcance de las marcas de pista (x 256 m)
     TAXI_STEP = 40.0     # separacion de las luces de eje de calle de rodaje (m)
 
     def taxi_lights(s, pts):
-        """luces verdes de eje a lo largo de una calle de rodaje (solo se ven de noche/crepusculo); se omiten las que caen sobre una pista"""
+        """luces verdes de eje a lo largo de una calle de rodaje (solo se ven de noche/crepusculo); se omiten las que caen sobre una pista.
+        Cada tramo recto se parte en filas de luces consecutivas fuera de las pistas."""
         rw = s.apts[s.apt_order[-1]]["rwy"] if s.apt_order else []
-        out = []
+        rows = []
         for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
             L = math.hypot(x1 - x0, y1 - y0)
             n = max(1, int(L // s.TAXI_STEP))
+            run = []
             for i in range(n + (1 if (x1, y1) == pts[-1] else 0)):
                 x, y = x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n
                 on = False
@@ -121,9 +162,13 @@ class Scen:
                         on = True
                         break
                 if not on:
-                    out.append((x, y, 0.3))
-        if out:
-            s.lights(out, C_GREEN, lod=16)
+                    run.append((x, y, 0.3))
+                if on or i == n + (1 if (x1, y1) == pts[-1] else 0) - 1:
+                    if run:
+                        rows.append((run[0], run[-1], len(run)))
+                    run = []
+        if rows:
+            s.lrows(rows, C_GREEN, lod=16)
 
     SEG = {"0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc", "5": "afgcd", "6": "afgedc", "7": "abc",
            "8": "abcdefg", "9": "abcdfg", "L": "efd", "R": "abefg", "C": "afed"}
@@ -205,31 +250,33 @@ class Scen:
         o.face(attr(FILLS["NEGRO"]), [o.vert(px_, py_) for px_, py_ in c])
         s.objs.append(o)
         # marcas: eje discontinuo y barras de umbral (ambas cabeceras)
-        # eje discontinuo: de 150 m a 150 m del final (despues de los numeros), en trozos de 20 rayas (80 vertices) para cubrir toda la pista
+        # eje discontinuo: de 150 m a 150 m del final (despues de los numeros), en trozos de MARK_DASHES rayas. Una raya mide 1,2 m de ancho:
+        # a mas de ~400 m ocupa menos de un pixel y no se pinta, pero se transforma y se proyecta entera; con trozos pequenos y alcance corto
+        # (MARK_LOD, en 256 m) solo se carga lo que se puede ver.
         L = 30.0
         t = 150.0
         while t + L <= ln - 150:
-            m = Obj(OBJ_GROUND, x + hx * t, y + hy * t, el, 0, lod=8)      # raya de menos de un pixel a mas de ~2,5 km: no se carga antes
+            m = Obj(OBJ_GROUND, x + hx * t, y + hy * t, el, 0, lod=s.MARK_LOD)
             m.absz = True
-            while t + L <= ln - 150 and len(m.v) < 80:
+            while t + L <= ln - 150 and len(m.v) < 4 * s.MARK_DASHES:
                 a0, a1 = t, t + L
                 q = [(x + hx * a0 - px * 0.6, y + hy * a0 - py * 0.6), (x + hx * a0 + px * 0.6, y + hy * a0 + py * 0.6),
                      (x + hx * a1 + px * 0.6, y + hy * a1 + py * 0.6), (x + hx * a1 - px * 0.6, y + hy * a1 - py * 0.6)]
                 m.face(attr(FILLS["BLANCO"]), [m.vert(*p) for p in q])
                 t += 2 * L
             s.objs.append(m)
-        th = Obj(OBJ_GROUND, cx, cy, el, 0, lod=10)      # barras de umbral aparte
-        th.absz = True
-        for end in (0, 1):
+        for end in (0, 1):                               # barras de umbral: un objeto por cabecera
+            a0, a1 = (6, 36) if end == 0 else (ln - 36, ln - 6)
+            th = Obj(OBJ_GROUND, x + hx * (a0 + a1) / 2, y + hy * (a0 + a1) / 2, el, 0, lod=s.MARK_LOD)
+            th.absz = True
             for k in (-3, -2, -1, 1, 2, 3):
                 off = k * wd / 8.0
-                a0, a1 = (6, 36) if end == 0 else (ln - 36, ln - 6)
                 q = [(x + hx * a0 + px * (off - 1), y + hy * a0 + py * (off - 1)),
                      (x + hx * a0 + px * (off + 1), y + hy * a0 + py * (off + 1)),
                      (x + hx * a1 + px * (off + 1), y + hy * a1 + py * (off + 1)),
                      (x + hx * a1 + px * (off - 1), y + hy * a1 + py * (off - 1))]
                 th.face(attr(FILLS["BLANCO"]), [th.vert(*p) for p in q])
-        s.objs.append(th)
+            s.objs.append(th)
         # numero de pista, grande, a la entrada de cada cabecera (legible desde la aproximacion) y luces PAPI a su izquierda
         opp = s.opposite(num)
         for (ex, ey, e_hx, e_hy, name) in ((x, y, hx, hy, num), (x + hx * ln, y + hy * ln, -hx, -hy, opp)):
@@ -240,22 +287,20 @@ class Scen:
         a["rwy"].append((hdg, ln, wd, x, y))
         a["rwy"].append(((hdg + 180) % 360, ln, wd, x + hx * ln, y + hy * ln))
         if luces or ils:
-            pts = []
             n = int(ln // 60)
-            for i in range(n + 1):
-                d = i * ln / n
-                for sgn in (-1, 1):
-                    pts.append((x + hx * d + sgn * px * (wd / 2 + 2), y + hy * d + sgn * py * (wd / 2 + 2), 0.5))
-            s.lights(pts, C_WHITE)
-            thr = [(x + px * k * wd / 10, y + py * k * wd / 10, 0.5) for k in range(-5, 6)]
-            s.lights(thr, C_GREEN)
-            endl = [(x + hx * ln + px * k * wd / 10, y + hy * ln + py * k * wd / 10, 0.5) for k in range(-5, 6)]
-            s.lights(endl, C_RED)
+            rows = []
+            for sgn in (-1, 1):                  # bordes de pista: dos filas de n + 1 luces
+                o = sgn * (wd / 2 + 2)
+                rows.append(((x + px * o, y + py * o, 0.5), (x + hx * ln + px * o, y + hy * ln + py * o, 0.5), n + 1, C_WHITE))
+            rows.append(((x - px * wd / 2, y - py * wd / 2, 0.5), (x + px * wd / 2, y + py * wd / 2, 0.5), 11, C_GREEN))                       # umbral
+            rows.append(((x + hx * ln - px * wd / 2, y + hy * ln - py * wd / 2, 0.5), (x + hx * ln + px * wd / 2, y + hy * ln + py * wd / 2, 0.5), 11, C_RED))   # fin
+            if ils:
+                # luces de aproximacion 900 m: eje cada 60 m y dos barras de 3 luces a 300 m
+                rows.append(((x - hx * 60, y - hy * 60, 1.0), (x - hx * 900, y - hy * 900, 1.0), 15, C_WHITE))
+                rows.append(((x - hx * 300 + px * -16, y - hy * 300 + py * -16, 1.0), (x - hx * 300 + px * -8, y - hy * 300 + py * -8, 1.0), 3, C_WHITE))
+                rows.append(((x - hx * 300 + px * 8, y - hy * 300 + py * 8, 1.0), (x - hx * 300 + px * 16, y - hy * 300 + py * 16, 1.0), 3, C_WHITE))
+            s.lrows(rows)
         if ils:
-            # luces de aproximacion 900 m
-            app = [(x - hx * d, y - hy * d, 1.0) for d in range(60, 901, 60)]
-            app += [(x - hx * 300 + px * k * 4, y - hy * 300 + py * k * 4, 1.0) for k in (-4, -3, -2, 2, 3, 4)]
-            s.lights(app, C_WHITE)
             f = int(round(float(ils) * 100))
             loc_x, loc_y = x + hx * (ln + 300), y + hy * (ln + 300)
             s.navs.append((NAV_ILS, f, loc_x, loc_y, el, hdg, 50, 3.0, "I" + apt[-3:]))
@@ -413,17 +458,93 @@ class Scen:
             lines.append([(x + i * 120 + 60, y - d / 2), (x + i * 120 + 60, y + d / 2)])
         for j in range(-gy, gy + 1):
             lines.append([(x - w / 2, y + j * 120 + 60), (x + w / 2, y + j * 120 + 60)])
-        for ln in lines:      # las calles solo se ven de noche, por sus luces
+        rows = []
+        for ln in lines:      # las calles solo se ven de noche, por sus luces: una fila por calle (una luz cada 240 m)
             L = math.hypot(ln[1][0] - ln[0][0], ln[1][1] - ln[0][1])
-            for t in range(0, int(L), 240):
-                u = t / L
-                pts.append((ln[0][0] + (ln[1][0] - ln[0][0]) * u, ln[0][1] + (ln[1][1] - ln[0][1]) * u, 4))
-        s.lights(pts, C_WHITE, lod=90)
+            n = len(range(0, int(L), 240))
+            u = 240 * (n - 1) / L if L else 0
+            rows.append(((ln[0][0], ln[0][1], 4), (ln[0][0] + (ln[1][0] - ln[0][0]) * u, ln[0][1] + (ln[1][1] - ln[0][1]) * u, 4), n))
+        s.lrows(rows, C_WHITE, lod=90)
         s.lights([(bx, by, bh + 1) for bx, by, bw, bd, bh, fl in boxes if bh >= 45], C_RED, lod=90)
+
+    MERGE_R = 400        # radio maximo (m) de un objeto de suelo que se puede fusionar con sus vecinos
+    MERGE_D = 400        # distancia maxima (m) de un objeto al primero del grupo
+
+    @staticmethod
+    def radius_of(o):
+        return int(max([math.hypot(a, b) for a, b, c in o.v] + [1]) + 1)
+
+    def merge_ground(s):
+        """Fusiona objetos pequenos de suelo (calles de rodaje, plataformas...) vecinos en uno solo: cada objeto cuesta ~7.500 ciclos fijos en el QL
+        (descarte, reunion, orden). La forma no cambia: las caras conservan su orden de pintado (radio del objeto de origen, de mayor a menor) y
+        no se fusiona un grupo si otro objeto de suelo cercano tiene un radio entre el de sus miembros y el del grupo (el orden respecto a el cambiaria)."""
+        T = 1 << s.tlog
+        ground = [o for o in s.objs if o.typ == OBJ_GROUND]
+        rad = {id(o): s.radius_of(o) for o in ground}
+        small = [o for o in ground if o.flags == 0 and rad[id(o)] <= s.MERGE_R and len(o.v) <= 16]
+        used = set()
+        merged = []
+        for o in sorted(small, key=lambda o: (o.ox // T, o.oy // T, o.lod, getattr(o, "absz", False), o.oz, o.ox, o.oy)):
+            if id(o) in used:
+                continue
+            key = (int(o.ox // T), int(o.oy // T), o.lod, getattr(o, "absz", False), o.oz)
+            grp = [o]
+            nv = len(o.v)
+            for q in small:
+                if id(q) in used or q is o:
+                    continue
+                if (int(q.ox // T), int(q.oy // T), q.lod, getattr(q, "absz", False), q.oz) != key:
+                    continue
+                if math.hypot(q.ox - o.ox, q.oy - o.oy) > s.MERGE_D or nv + len(q.v) > 80:
+                    continue
+                grp.append(q)
+                nv += len(q.v)
+            if len(grp) < 2:
+                continue
+            for q in grp:
+                used.add(id(q))
+            faces = []              # (radio de origen, orden, atributo, vertices absolutos)
+            for q in grp:
+                for k, (a, idx) in enumerate(q.f):
+                    faces.append((-rad[id(q)], len(faces), a, [(q.ox + q.v[i][0], q.oy + q.v[i][1], q.v[i][2]) for i in idx]))
+            faces.sort(key=lambda t: (t[0], t[1]))
+            cx = sum(q.ox for q in grp) / len(grp)
+            cy = sum(q.oy for q in grp) / len(grp)
+            m = Obj(OBJ_GROUND, cx, cy, o.oz, 0, o.lod)
+            if getattr(o, "absz", False):
+                m.absz = True
+            for _, _, a, pts in faces:
+                m.face(a, [m.vert(*p) for p in pts])
+            rm, rmin = s.radius_of(m), min(rad[id(q)] for q in grp)
+            bad = False
+            attrs = set(a for _, _, a, _ in faces)
+            gx = [p[0] for _, _, _, pts in faces for p in pts]
+            gy = [p[1] for _, _, _, pts in faces for p in pts]
+            for x in ground:
+                if x in grp or not (rmin < rad[id(x)] <= rm):
+                    continue
+                if math.hypot(x.ox - cx, x.oy - cy) >= rad[id(x)] + rm:
+                    continue
+                xs = [x.ox + v[0] for v in x.v]
+                ys = [x.oy + v[1] for v in x.v]
+                if max(xs) < min(gx) or min(xs) > max(gx) or max(ys) < min(gy) or min(ys) > max(gy):
+                    continue                                   # las cajas no se tocan
+                if len(attrs | set(a for a, _ in x.f)) > 1:    # mismo relleno en todo: el orden no se nota
+                    bad = True
+                    break
+            if bad:
+                for q in grp:
+                    used.discard(id(q))
+                continue
+            merged.append((grp, m))
+        gone = set(id(q) for g, m in merged for q in g)
+        s.objs = [o for o in s.objs if id(o) not in gone] + [m for g, m in merged]
+        print("fusion de suelo: %d objetos -> %d" % (len(gone), len(merged)))
 
     # ---------------------------------------------------------------- binario
     def write(s, out):
         s.paint_numbers()
+        s.merge_ground()
         T = 1 << s.tlog
         xs = [o.ox for o in s.objs] + [a["x"] for a in s.apts.values()]
         ys = [o.oy for o in s.objs] + [a["y"] for a in s.apts.values()]

@@ -150,7 +150,7 @@ static int tile_parse(Tile *t, u8 *blob, u32 size)
     t->nobj = n;
     t->obj = (Obj *)malloc(sizeof(Obj) * (n + 1));
     if (!t->obj) return 0;
-    for (i = 0; i < n && p + 20 <= end; i++) {
+    for (i = 0; i < n && p + 22 <= end; i++) {
         Obj *o = &t->obj[i];
         o->type = p[0]; o->flags = p[1]; o->lod = p[2]; o->vshift = p[3];
         o->ox = (s32)rd32(p + 4);
@@ -158,8 +158,9 @@ static int tile_parse(Tile *t, u8 *blob, u32 size)
         o->oz = (s16)rd16(p + 12);
         o->radius = rd16(p + 14);
         o->nv = p[16]; o->nf = p[17];
+        o->nvf = p[20]; o->nff = p[21];
         o->fbytes = rd16(p + 18);
-        p += 20;
+        p += 22;
         o->reach = ((s32)o->lod << 8) * (o->type == OBJ_SOLID && o->lod < 128 ? SOLID_LOD : 8) / 8;
         o->reach += o->radius;
         o->v = (s16 *)p;
