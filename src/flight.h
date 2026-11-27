@@ -62,6 +62,7 @@ typedef struct {
 void flight_init(Flight *f, const AircraftDef *ac);
 void flight_place(Flight *f, s32 x_m, s32 y_m, s32 z_m, u16 hdg_bam, s32 v_ms, int on_ground);
 void flight_step(Flight *f, World *w);
+void flight_engines(Flight *f);     /* motores, empuje y combustible (cada ENG_N pasos; con -DENG_EXTERNAL lo llama quien reparte las tareas) */
 
 /* conversiones para instrumentos */
 #define MS2KT(v)   (fxmul((v), 127391L))      /* m/s Q16 -> nudos Q16 (1.9438) */

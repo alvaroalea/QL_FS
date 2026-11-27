@@ -35,8 +35,10 @@ void gfx_copy_box(u8 *dst, const u8 *src, int x0, int y0, int x1, int y1);
 void gfx_hspan_raw(u8 *row, s32 x0, s32 x1, s32 pat);
 void gfx_line_raw(u8 *base, s32 x0, s32 y0, s32 x1, s32 y1, s32 c);
 void gfx_memcpy(u8 *dst, const u8 *src, s32 n);
+void gfx_blit(u8 *dst, const u8 *src, s32 rows, s32 n, s32 dstride, s32 sstride);   /* filas de n bytes (par) con pasos distintos */
 s32  lerp_div(s32 a, s32 b, s32 num, s32 den);               /* a + (b-a)*num/den exacto (ql68k.s en el QL) */
 int  gfx_fill_convex(u8 *base, const s32 *p, int m, s32 f);   /* poligono convexo recortado; 0 si no es convexo */
+void gfx_glyph(u8 *p, const u16 *spr, s32 cells);                 /* letra preparada (panel.c, glyph_make): 7 filas de 4 palabras, 1 o 2 grupos */
 void gfx_text_raw(u8 *row0, s32 x, const char *t, s32 c);   /* texto 5x7 sin recorte desde la fila row0 */
 void gfx_poly32(Surface *s, int n, const s32 *xy, Fill f);       /* recorta a la ventana y rellena */
 void gfx_poly_gen(Surface *s, int m, const s32 *src, Fill f);     /* relleno general (no convexo) de un poligono ya recortado */

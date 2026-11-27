@@ -8,7 +8,7 @@
 ;   _fxmul          (a*b)>>16 con signo, 32x32 (4 MULU)
 ;   _gfx_hspan_raw  relleno de un tramo horizontal en modo 4 con patron
 ;   _gfx_line_raw   Bresenham en modo 4 (ya recortada)
-;   _gfx_memcpy     copia con MOVEM de 48 bytes (volcado del buffer 3D)
+;   _gfx_memcpy     copia con MOVEM de 48 bytes (volcado del buffer 3D); menos de 48 bytes: bucle de largos sin salvar registros
 ;   _xform3         matriz 3x3 Q14 por n vertices s16 -> s32
 ;   _mdq            a*b/d con muls/divs (proyeccion y recorte), MDQ_BIG si no cabe
 ;   (las llamadas a QDOS estan en qdos68k.s)
@@ -20,6 +20,8 @@
         .globl  _gfx_hspan_raw
         .globl  _gfx_line_raw
         .globl  _gfx_memcpy
+        .globl  _gfx_blit
+        .globl  _gfx_glyph
         .globl  _xform3
         .globl  _mdq
 
@@ -321,10 +323,32 @@ ln_ny:  dbra    d5,ln_loop
 ; ---------------------------------------------------------------- memcpy
 ; void gfx_memcpy(u8 *dst, const u8 *src, s32 n)
 _gfx_memcpy:
-        movem.l d2-d7/a2-a6,-(a7)       ; 44 bytes
-        move.l  48(a7),a1               ; destino
-        move.l  52(a7),a0               ; origen
-        move.l  56(a7),d0               ; n
+        move.l  4(a7),a1                ; destino
+        move.l  8(a7),a0                ; origen
+        move.l  12(a7),d0               ; n
+        cmp.l   #48,d0
+        bge     mc_big
+        ; via corta (filas de panel, cajas de instrumentos): sin salvar registros (d0,d1,a0,a1 son de la rutina que llama)
+        move.l  a1,d1
+        btst    #0,d1
+        bne     mc_sb                   ; direcciones impares: byte a byte
+        move.l  a0,d1
+        btst    #0,d1
+        bne     mc_sb
+        move.l  d0,d1
+        lsr.l   #2,d1
+        beq     mc_st
+        subq.w  #1,d1
+mc_sl:  move.l  (a0)+,(a1)+
+        dbra    d1,mc_sl
+mc_st:  and.w   #3,d0
+        beq     mc_sr
+mc_sb:  subq.w  #1,d0
+        bmi     mc_sr
+mc_sc:  move.b  (a0)+,(a1)+
+        dbra    d0,mc_sc
+mc_sr:  rts
+mc_big: movem.l d2-d7/a2-a6,-(a7)       ; 44 bytes
         move.l  a1,d1
         move.l  a0,d2
         or.l    d2,d1
@@ -350,6 +374,66 @@ mc_bytes:
         subq.l  #1,d0
         bra     mc_bytes
 mc_end: movem.l (a7)+,d2-d7/a2-a6
+        rts
+
+; ---------------------------------------------------------------- gfx_blit
+; void gfx_blit(u8 *dst, const u8 *src, s32 rows, s32 n, s32 dstride, s32 sstride)
+;   Copia `rows` filas de n bytes (n par, direcciones pares) con pasos de destino y origen distintos: cajas de instrumentos y
+;   copias de la rosa. Sin llamada a gfx_memcpy por fila (la preparacion de cada llamada costaba mas que la copia de 24 bytes).
+_gfx_blit:
+        movem.l d2-d5/a2-a3,-(a7)       ; 24 bytes
+        move.l  28(a7),a1               ; destino
+        move.l  32(a7),a0               ; origen
+        move.l  36(a7),d3               ; filas
+        move.l  40(a7),d4               ; n
+        move.l  44(a7),d1               ; paso del destino
+        move.l  48(a7),d2               ; paso del origen
+        move.l  d4,d0
+        lsr.l   #2,d0                   ; largos por fila
+        subq.w  #1,d3
+        bmi     bl_end
+bl_row: move.l  a0,a2
+        move.l  a1,a3
+        move.w  d0,d5
+        subq.w  #1,d5
+        bmi     bl_w
+bl_lp:  move.l  (a2)+,(a3)+
+        dbra    d5,bl_lp
+bl_w:   btst    #1,d4
+        beq     bl_nx
+        move.w  (a2)+,(a3)+
+bl_nx:  adda.l  d2,a0
+        adda.l  d1,a1
+        dbra    d3,bl_row
+bl_end: movem.l (a7)+,d2-d5/a2-a3
+        rts
+
+; ---------------------------------------------------------------- gfx_glyph
+; void gfx_glyph(u8 *p, const u16 *spr, s32 cells)
+;   Una letra de 7 filas ya preparada para su desplazamiento dentro del grupo de 8 pixeles (ver panel.c, glyph_make): p = direccion del
+;   grupo de la fila 0 de la letra (fila * 128 + (x >> 3) * 2); spr = 7 filas de 4 palabras (conservar y poner del primer grupo, y lo
+;   mismo del segundo). cells = 1 si la letra cabe en un solo grupo (los puntos del segundo estan apagados), 2 si no.
+;   Cada grupo: palabra = (palabra y conservar) o poner. Sin desplazamientos ni mascaras que calcular.
+_gfx_glyph:
+        move.l  4(a7),a0
+        move.l  8(a7),a1
+        move.l  12(a7),d0
+        moveq   #6,d1
+        subq.w  #1,d0                   ; 0 = un grupo, 1 = dos
+gg_row: move.w  (a0),d2
+        and.w   (a1)+,d2
+        or.w    (a1)+,d2
+        move.w  d2,(a0)
+        tst.w   d0
+        beq     gg_one
+        move.w  2(a0),d2
+        and.w   (a1)+,d2
+        or.w    (a1)+,d2
+        move.w  d2,2(a0)
+        bra     gg_nx
+gg_one: addq.l  #4,a1
+gg_nx:  lea     128(a0),a0
+        dbra    d1,gg_row
         rts
 
 ; ---------------------------------------------------------------- xform3

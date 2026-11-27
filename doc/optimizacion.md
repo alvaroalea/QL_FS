@@ -6,7 +6,7 @@
 saca los **ciclos del 68008 por función**: el emulador acumula, instrucción a instrucción, los ciclos de cada dirección
 (con los estados de espera por la contención del ZX8301 a `SPEED = 1.0`) y `tools/ql_prof.py` los reparte por funciones
 con el mapa de enlace de `qcc -ms`. El código de la biblioteca de C (`.Xlmul`, `.Xldiv`, `.Xlrem`...) se atribuye a la
-función que lo llamó. Hace falta el sQLux con el parche de perfil (el de `../QL_SCUMM/tmp/sQLux`; otra ruta con
+función que lo llamó. Hace falta el sQLux con el parche de perfil (la rama `profile` de `~/src/sQLux`, ya compilada en `build/sqlux`; otra ruta con
 `SQLUX=`) y las ROM en `~/src/sQLux/build/roms` (`ROMDIR=`).
 
 * **Siempre SPEED = 1,0** (con la contención del ZX8301 y las interrupciones de QDOS). A toda marcha (SPEED 0) el emulador no

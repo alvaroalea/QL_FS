@@ -9,6 +9,15 @@ void plat_mode4(void);
 void plat_timer_on(void);
 void plat_timer_off(void);
 
+extern void (*plat_isr_fn)(void);      /* qdos68k.s: tm_poll la llama con todos los registros salvados y la pila plat_isr_sp */
+extern void *plat_isr_sp;
+static long isr_stack[2048];           /* 8 KB para la pila de la interrupcion */
+void plat_isr_set(void (*fn)(void))
+{
+    plat_isr_sp = (void *)(isr_stack + 2048);
+    plat_isr_fn = fn;
+}
+
 char plat_dev[8] = "flp1_";            /* dispositivo de datos (argumento 1) */
 
 /* QSound: PIA 6821 en BASE+$2000. Protocolo de 2 fases confirmado en la
@@ -24,6 +33,63 @@ void psg_write(int reg, int val)
     p[0] = (u8)val;  p[2] = 0x0E; p[2] = 0x0A;
 }
 
+/* ---- memoria alta ($40000 en adelante, sin contencion) para todo lo que se usa a menudo (doc/memoria_alta.md)
+ * En el QL el programa y sus datos globales los pone QDOS arriba, pero la pila de la tarea (c68: _stack) y todo lo que da malloc salen del
+ * monton comun por el principio, que es la RAM interna del ZX8301: cada acceso espera al video. plat_himem_init llena ese hueco bajo con
+ * bloques que se quedan reservados (tapon) y desde entonces malloc solo da memoria alta; la pila se cambia a un bloque alto. Los bloques
+ * del tapon se devuelven al salir. Sin RAM de expansion (el primer malloc tras el tapon sale bajo o falla) no se hace nada. */
+#define LOW_END 0x40000UL
+#define PLUG_MAX 96
+static void *plug[PLUG_MAX];
+static int nplug;
+static void *himem_stack;
+extern int plat_run_on_stack(int (*fn)(void), void *top);
+
+static void plug_release(void)
+{
+    while (nplug > 0) free(plug[--nplug]);
+}
+
+long plat_himem_used = 0;           /* bytes de RAM interna tapados (informe) */
+int plat_himem_ok = 0;
+
+void plat_himem_init(void)
+{
+    static const long sz[] = { 32768L, 16384L, 8192L, 4096L, 2048L, 1024L, 512L, 256L, 128L, 64L, 0 };
+    int i;
+    void *p;
+    for (i = 0; sz[i]; i++)
+        for (;;) {
+            p = malloc((size_t)sz[i]);
+            if (!p) break;
+            if ((unsigned long)p >= LOW_END) { free(p); break; }     /* esta talla ya cae arriba: se prueba una menor por si cabe en los huecos de abajo */
+            if (nplug >= PLUG_MAX) { free(p); break; }
+            plug[nplug++] = p; plat_himem_used += sz[i];
+        }
+    p = malloc(256L);                                               /* ¿queda memoria alta? */
+    if (!p || (unsigned long)p < LOW_END) { if (p) free(p); plug_release(); plat_himem_used = 0; return; }
+    free(p);
+    himem_stack = malloc(24576L);                                   /* pila alta de 24 KB */
+    plat_himem_ok = himem_stack != NULL;
+}
+
+int plat_run(int (*fn)(void))                                       /* fn con la pila alta, si la hay */
+{
+    if (!himem_stack) return fn();
+    return plat_run_on_stack(fn, (char *)himem_stack + 24576L);
+}
+
+/* 1 si hay RAM de expansion y aun asi el codigo o los datos globales estan en la contenida (el programa seria ~20 % mas lento) */
+int plat_low_warn(void)
+{
+    return plat_himem_ok && ((unsigned long)&plat_low_warn < LOW_END || (unsigned long)&plat_himem_used < LOW_END);
+}
+
+void plat_himem_done(void)
+{
+    plug_release();
+}
+
 void plat_init(void)
 {
     plat_mode4();
@@ -32,7 +98,9 @@ void plat_init(void)
 
 void plat_exit(void)
 {
+    plat_isr_fn = 0;
     plat_timer_off();
+    plat_himem_done();
 }
 
 u8 *plat_screen(void) { return (u8 *)0x20000L; }

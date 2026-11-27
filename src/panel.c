@@ -27,11 +27,21 @@ static Surface S;
 static const AircraftDef *AC;
 static int asi_max;
 static s16 hw_tab[RY + 1];     /* semiancho del horizonte artificial por fila */
+#ifdef AI_DIFF
+/* Lo que hay pintado en cada fila: color de la parte izquierda (0 cielo, 1 tierra, 2 = sin pintar) y la columna donde empieza la derecha.
+ * Al cambiar la actitud solo se repintan los pixeles entre la frontera vieja y la nueva (y las filas enteras si cambia el color). */
+static u8 ai_pl[2 * RY + 1];
+static s16 ai_lx0[2 * RY + 1], ai_lx1[2 * RY + 1];   /* hueco libre de cada fila dentro del aro (de la copia limpia del panel) */
+static s16 ai_pb[2 * RY + 1];
+static int ai_touch;                 /* se ha pintado algo en las filas del avion de referencia */
+#endif
 
 /* Rosa del direccional: el patron de rayitas se repite cada 10 grados, asi que bastan GYN copias del fondo (anillo + rayitas
  * cortas + centro negro) giradas de 1 en 1 grado. Al cambiar el rumbo se vuelca la copia (rumbo % 10) y encima solo se pintan
  * las 12 rayitas largas y los numeros. */
-#define GYN 10
+#ifndef GYN
+#define GYN 30                 /* 30 copias: las rayitas largas (cada 30 grados) tambien van en el fondo; con 10 se pintan encima */
+#endif
 #define GY_X0 (COL2 - RX - 2)
 #define GY_Y0 (ROW2 - RY - 1)
 #define GY_Y1 (ROW2 + RY + 1)
@@ -230,11 +240,15 @@ static int panel_load(u8 *scr, const char *acf)
     return ok;
 }
 
-static void gyro_tick_set(int k)                 /* rayitas cortas con la rosa girada k grados */
+static void gyro_tick_set(int k)                 /* rayitas cortas (y largas, si GYN = 30) con la rosa girada k grados */
 {
     int i;
     for (i = 0; i < 36; i++)
         tick(COL2, ROW2, (u16)(((i * 10L - k + 360) % 360) * 65536L / 360), 226, 250, C_WHITE);
+#if GYN == 30
+    for (i = 0; i < 12; i++)
+        tick(COL2, ROW2, (u16)(((30L * i - k + 360) % 360) * 65536L / 360), 196, 226, C_WHITE);
+#endif
     gfx_rect(&S, COL2 - 10, ROW2 - 4, COL2 + 10, ROW2 + 4, fill_tab[F_BLACK]);
 }
 
@@ -260,6 +274,30 @@ static void gyro_build(u8 *work)
     memset(work, 0, (size_t)VIEW_H * SCR_STRIDE);
 }
 
+#ifdef AI_DIFF
+/* De la copia limpia del panel: por cada fila del horizonte, el tramo libre desde el centro hasta el primer punto del aro (o de lo que haya) */
+static int clean_px(int x, int y)
+{
+    const u8 *p = clean + (s32)(y - PANEL_Y0) * SCR_STRIDE + ((x >> 3) << 1);
+    return ((p[0] | p[1]) & (0x80 >> (x & 7))) != 0;
+}
+
+static void ai_limits(void)
+{
+    int r, y, x;
+    if (!clean) return;
+    for (r = 0; r <= 2 * RY; r++) {
+        y = ROW1 - RY + r;
+        x = COL2;
+        if (clean_px(x, y)) { ai_lx0[r] = 1; ai_lx1[r] = 0; continue; }
+        for (x = COL2 - 1; x > COL2 - RX - 3 && !clean_px(x, y); x--) ;
+        ai_lx0[r] = (s16)(x + 1);
+        for (x = COL2 + 1; x < COL2 + RX + 3 && !clean_px(x, y); x++) ;
+        ai_lx1[r] = (s16)(x - 1);
+    }
+}
+#endif
+
 void panel_init(u8 *scr, const AircraftDef *ac, const char *acf, u8 *work)
 {
     panel_setup(ac);
@@ -275,6 +313,9 @@ void panel_init(u8 *scr, const AircraftDef *ac, const char *acf, u8 *work)
     if (!clean) clean = (u8 *)plat_alloc_hi((long)(SCR_H - PANEL_Y0) * SCR_STRIDE);   /* RAM alta: se lee a menudo */
     if (clean) gfx_memcpy(clean, scr + (s32)PANEL_Y0 * SCR_STRIDE, (s32)(SCR_H - PANEL_Y0) * SCR_STRIDE);
     gyro_build(work);
+#ifdef AI_DIFF
+    ai_limits();
+#endif
     panel_reset_state();                 /* nada de lo dinamico esta pintado todavia */
 }
 
@@ -330,6 +371,10 @@ static void panel_reset_state(void)
     for (i = 0; i < 6; i++) s_rad[i][0] = 1;       /* distinto de cualquier cadena real: se pinta la primera vez */
     for (i = 0; i < 4; i++) s_eng[i][0] = 1;
     s_msg[0] = 1; s_stat[0] = 1; s_warn = NONE; s_fps = -3;
+#ifdef AI_DIFF
+    memset(ai_pl, 2, sizeof ai_pl);
+    ai_touch = 1;
+#endif
 }
 
 /* ---------------------------------------------------------- instrumentos */
@@ -347,34 +392,99 @@ static void draw_asi(const Flight *f)
     s_kt = (int)kt;
 }
 
-static void ai_paint(const Flight *f)
+/* Horizonte artificial en tres tiempos, para poder repartirlo entre varios turnos de 20 ms (panel_job_step):
+ * ai_begin fija actitud y colores, ai_rows pinta un rango de filas y ai_end el avion de referencia y el aro. */
+static s32 ai_sa, ai_ca, ai_h;
+#ifdef AI_INCR
+static s32 ai_K, ai_D;
+#endif
+static Fill ai_sky, ai_gnd;
+
+static void ai_begin(const Flight *f)
 {
     u16 bb = (u16)fxmul(f->phi, RAD2BAM);
-    s32 sa = isin(bb), ca = icos(bb), h, B, xb;
+    ai_sa = isin(bb); ai_ca = icos(bb);
+    ai_sky = fill_tab[F_WHITE]; ai_gnd = fill_tab[F_BROWN];
+    ai_h = fxmul(f->the, 57L * 65536L) * RY / 25 >> 16;         /* grados -> pixeles */
+    ai_h = CLAMP(ai_h, -RY * 2, RY * 2);
+#ifdef AI_INCR
+    ai_D = 3L * ai_ca;                                          /* el horizonte es una recta: xb(y) crece K/256 pixeles por fila (K = 3 ca / (2 sa) en Q8) */
+    ai_K = ABS(ai_sa) >= 64 ? (3L * ai_ca * 128L) / ai_sa : 0;  /* la unica division del horizonte */
+#endif
+}
+
+#ifdef AI_DIFF
+static void ai_rows(int ya, int yb)
+{
+    s32 sa = ai_sa, B, xb, K = ai_K, D = ai_D, xq;
+    int y, x0, x1, cx = COL2, cy = ROW1, lc, b, r, pl, pb;
+    xq = (s32)cx * 256 - (s32)(ya - cy - ai_h) * K;
+    B = (s32)(ya - cy - ai_h) * D;
+    for (y = ya; y <= yb; y++) {
+        r = y - (cy - RY);
+        x0 = ai_lx0[r]; x1 = ai_lx1[r];
+        xb = xq >> 8; xq -= K;
+        if (x1 < x0) { B += D; continue; }               /* fila cuyo centro es del aro: nada que pintar */
+        if (ABS(sa) < 64) { lc = B < 0 ? 0 : 1; b = x1 + 1; B += D; }
+        else {
+            lc = sa > 0 ? 0 : 1;                        /* cielo a la izquierda si sa > 0 */
+            b = (int)CLAMP(xb, (s32)x0, (s32)x1 + 1);
+            if (b <= x0) { lc ^= 1; b = x1 + 1; }       /* toda la fila del color de la derecha: se guarda como un solo color */
+        }
+        pl = ai_pl[r]; pb = ai_pb[r];
+        ai_pl[r] = (u8)lc; ai_pb[r] = (s16)b;
+        if (pl == lc && pb == b) continue;
+        if (y >= cy - 1 && y <= cy + 3) ai_touch = 1;
+        if (pl == lc) {                                 /* mismo color a la izquierda: solo cambia el tramo entre las dos fronteras */
+            if (b > pb) gfx_hspan(&S, y, pb, b - 1, lc ? ai_gnd : ai_sky);
+            else gfx_hspan(&S, y, b, pb - 1, lc ? ai_sky : ai_gnd);
+        } else {                                        /* fila nueva o con otro color a la izquierda: entera */
+            gfx_hspan(&S, y, x0, b - 1, lc ? ai_gnd : ai_sky);
+            if (b <= x1) gfx_hspan(&S, y, b, x1, lc ? ai_sky : ai_gnd);
+        }
+    }
+}
+#else
+static void ai_rows(int ya, int yb)
+{
+    s32 sa = ai_sa, B, xb;
     int y, x0, x1, dy, w, cx = COL2, cy = ROW1;
-    Fill sky = fill_tab[F_WHITE], gnd = fill_tab[F_BROWN];
-    h = fxmul(f->the, 57L * 65536L) * RY / 25 >> 16;         /* grados -> pixeles */
-    h = CLAMP(h, -RY * 2, RY * 2);
-    for (y = cy - RY + 1; y <= cy + RY - 1; y++) {
+#ifdef AI_INCR
+    s32 K = ai_K, D = ai_D, xq = (s32)cx * 256 - (s32)(ya - cy - ai_h) * K;
+    B = (s32)(ya - cy - ai_h) * D;                              /* 2 B (solo importa su signo) */
+#endif
+    for (y = ya; y <= yb; y++) {
         dy = y - cy;
         w = hw_tab[ABS(dy)];
         x0 = cx - w; x1 = cx + w;
-        B = (dy - h) * 3 * ca / 2;            /* cielo si (x-cx)*sa + B < 0 */
+#ifdef AI_INCR
+        xb = xq >> 8; xq -= K;
+        if (ABS(sa) < 64) { gfx_hspan(&S, y, x0, x1, B < 0 ? ai_sky : ai_gnd); B += D; continue; }
+#else
+        B = (dy - ai_h) * 3 * ai_ca / 2;      /* cielo si (x-cx)*sa + B < 0 */
         if (ABS(sa) < 64) {
-            gfx_hspan(&S, y, x0, x1, B < 0 ? sky : gnd);
+            gfx_hspan(&S, y, x0, x1, B < 0 ? ai_sky : ai_gnd);
             continue;
         }
         xb = cx - B / sa;
+#endif
         if (sa > 0) {                          /* cielo a la izquierda de xb */
-            if (xb <= x0) gfx_hspan(&S, y, x0, x1, gnd);
-            else if (xb > x1) gfx_hspan(&S, y, x0, x1, sky);
-            else { gfx_hspan(&S, y, x0, (int)xb - 1, sky); gfx_hspan(&S, y, (int)xb, x1, gnd); }
+            if (xb <= x0) gfx_hspan(&S, y, x0, x1, ai_gnd);
+            else if (xb > x1) gfx_hspan(&S, y, x0, x1, ai_sky);
+            else { gfx_hspan(&S, y, x0, (int)xb - 1, ai_sky); gfx_hspan(&S, y, (int)xb, x1, ai_gnd); }
         } else {
-            if (xb <= x0) gfx_hspan(&S, y, x0, x1, sky);
-            else if (xb > x1) gfx_hspan(&S, y, x0, x1, gnd);
-            else { gfx_hspan(&S, y, x0, (int)xb - 1, gnd); gfx_hspan(&S, y, (int)xb, x1, sky); }
+            if (xb <= x0) gfx_hspan(&S, y, x0, x1, ai_sky);
+            else if (xb > x1) gfx_hspan(&S, y, x0, x1, ai_gnd);
+            else { gfx_hspan(&S, y, x0, (int)xb - 1, ai_gnd); gfx_hspan(&S, y, (int)xb, x1, ai_sky); }
         }
     }
+}
+
+#endif
+
+static void ai_plane_lines(void)
+{
+    int cx = COL2, cy = ROW1;
     /* avion de referencia */
     gfx_line(&S, cx - 24, cy, cx - 8, cy, C_RED);
     gfx_line(&S, cx - 8, cy, cx - 4, cy + 3, C_RED);
@@ -383,7 +493,60 @@ static void ai_paint(const Flight *f)
     gfx_line(&S, cx - 24, cy + 1, cx - 8, cy + 1, C_RED);
     gfx_line(&S, cx + 8, cy + 1, cx + 24, cy + 1, C_RED);
     gfx_rect(&S, cx - 1, cy - 1, cx + 1, cy, fill_tab[F_RED]);
-    ring(cx, cy);
+}
+
+#ifdef AI_DIFF
+/* El avion de referencia como mascara (5 filas x 7 grupos): se dibuja una vez con las lineas sobre un fondo de unos y desde entonces
+ * se estampa (verde fuera, rojo dentro) en vez de trazar seis lineas y un rectangulo (7 ms) */
+#define PL_Y0 (ROW1 - 1)
+#define PL_C0 ((COL2 - 24) >> 3)
+static u8 pl_m[5][7];
+static int pl_ok;
+
+static void ai_plane(void)
+{
+    int r, c;
+    u8 *p, m;
+    if (!pl_ok) {
+        static u8 tmp[5 * SCR_STRIDE];
+        Surface keep = S, W;
+        memset(tmp, 0xFF, sizeof tmp);
+        gfx_init_surface(&W, tmp - (s32)PL_Y0 * SCR_STRIDE, PL_Y0 + 5);
+        gfx_clip(&W, 0, PL_Y0, SCR_W - 1, PL_Y0 + 4);
+        S = W;
+        ai_plane_lines();
+        S = keep;
+        for (r = 0; r < 5; r++)
+            for (c = 0; c < 7; c++) pl_m[r][c] = (u8)~tmp[r * SCR_STRIDE + (PL_C0 + c) * 2];
+        pl_ok = 1;
+    }
+    for (r = 0; r < 5; r++) {
+        p = S.base + (s32)(PL_Y0 + r) * SCR_STRIDE + PL_C0 * 2;
+        for (c = 0; c < 7; c++, p += 2) {
+            m = pl_m[r][c];
+            if (m) { p[0] &= (u8)~m; p[1] |= m; }
+        }
+    }
+}
+#else
+static void ai_plane(void) { ai_plane_lines(); }
+#endif
+
+static void ai_end(void)
+{
+#ifdef AI_DIFF
+    if (ai_touch) { ai_plane(); ai_touch = 0; }         /* el aro no se toca: el horizonte no llega a el */
+#else
+    ai_plane();
+    ring(COL2, ROW1);
+#endif
+}
+
+static void ai_paint(const Flight *f)
+{
+    ai_begin(f);
+    ai_rows(ROW1 - RY + 1, ROW1 + RY - 1);
+    ai_end();
 }
 
 
@@ -471,30 +634,147 @@ static void draw_tc(const Flight *f)
     }
 }
 
-static void draw_hdg(const Flight *f)
+static const char *const hdg_lab[12] = { "N", "3", "6", "E", "12", "15", "S", "21", "24", "W", "30", "33" };
+
+/* posiciones de los numeros: el dibujo se repite cada 30 grados (solo cambia que numero hay en cada sitio), asi que se calculan una vez
+ * para cada rumbo % 30 y cada uno de los 12 sitios: centro del texto (x, y) */
+static s16 lab_xy[30][12][2];
+static u8 lab_ix[12][2];                                 /* indice de letra de cada caracter de cada numero de la rosa */
+static int lab_ok;
+
+/* Letras como mapas de bits ya desplazados. Escribir texto con gfx_text_raw cuesta ~0,9 ms por letra en el 68008 (siete filas con
+ * desplazamientos, mascaras y dos lecturas-escrituras de pantalla); aqui cada letra, para cada uno de los 8 desplazamientos dentro del
+ * grupo de pixeles y para su tinta, se deja preparada como 7 filas de (conservar, poner) de uno o dos grupos, y pintarla es
+ * palabra = (palabra y conservar) o poner. Se usan las letras de la rosa: N E S W en verde y las cifras en blanco, y las cifras
+ * rojas del rumbo (solo en los tres sitios que ocupan). */
+#define GL_W 0                                           /* blancas: cifras 0..6 (las que llevan los numeros de la rosa) */
+#define GL_NW 7
+static u16 *gl_lab;                                      /* [letra][desplazamiento][7][4]: 7 blancas (0..6), 4 verdes (N E S W) */
+static u16 *gl_num;                                      /* [cifra 0..9][3 sitios][7][4], rojas */
+#define GL_SH 5                                          /* cada letra ocupa 32 palabras (7 filas x 4 usadas): el indice es un desplazamiento, no un producto de 32 bits */
+#define GL_WORDS (1 << GL_SH)
+static const u8 num_x[3] = { COL2 - 8, COL2 - 8 + 6, COL2 - 8 + 12 };
+
+static void glyph_make(u16 *dst, int ch, int al, int ink)
 {
-    u16 h = (u16)fxmul(f->psi, RAD2BAM), a;
-    int j, y, hd = (int)((((s32)h * 360L + 32768L) >> 16) % 360);
-    static const char *lab[12] = { "N", "3", "6", "E", "12", "15", "S", "21", "24", "W", "30", "33" };
-    char b[6];
+    const u8 *g = font5x7 + (ch - 32) * 7;
+    int r, k;
+    u16 field, ink_w = (u16)(((ink & 2) ? 0xFF00 : 0) | ((ink & 1) ? 0x00FF : 0)), m;
+    for (r = 0; r < 7; r++) {
+        field = (u16)(((u16)(g[r] << 3) << 8) >> al);
+        for (k = 0; k < 2; k++) {
+            m = (u16)(k ? (field & 0xFF) : (field >> 8));
+            m = (u16)(m | (m << 8));
+            dst[r * 4 + 2 * k] = (u16)~m;
+            dst[r * 4 + 2 * k + 1] = (u16)(ink_w & m);
+        }
+    }
+}
+
+static void glyphs_init(void)
+{
+    int i, a;
+    if (gl_lab) return;
+    gl_lab = (u16 *)malloc((size_t)(7 + 4) * 8 * GL_WORDS * 2);
+    gl_num = (u16 *)malloc((size_t)10 * 4 * GL_WORDS * 2);
+    if (!gl_lab || !gl_num) { free(gl_lab); free(gl_num); gl_lab = gl_num = NULL; return; }
+    for (i = 0; i < 7; i++) for (a = 0; a < 8; a++) glyph_make(gl_lab + ((((s32)i << 3) + a) << GL_SH), '0' + i, a, C_WHITE);
+    for (i = 0; i < 4; i++) for (a = 0; a < 8; a++) glyph_make(gl_lab + ((((s32)(7 + i) << 3) + a) << GL_SH), "NESW"[i], a, C_GREEN);
+    for (i = 0; i < 10; i++) for (a = 0; a < 3; a++) glyph_make(gl_num + (((s32)i << 2) + a) * GL_WORDS, '0' + i, num_x[a] & 7, C_RED);
+}
+
+static void glyph_put(int x, int y, const u16 *spr)
+{
+    gfx_glyph(S.base + ((s32)y << 7) + ((x >> 3) << 1), spr, (x & 7) > 3 ? 2 : 1);
+}
+
+static void hdg_tables(void)
+{
+    int k, q;
+    s32 x, y;
+    if (lab_ok) return;
+    for (k = 0; k < 30; k++)
+        for (q = 0; q < 12; q++) {
+            dpt(COL2, ROW2, (u16)(((30L * q - k + 360) % 360) * 65536L / 360), 150, &x, &y);
+            lab_xy[k][q][0] = (s16)x; lab_xy[k][q][1] = (s16)y;
+        }
+    for (q = 0; q < 12; q++)
+        for (k = 0; hdg_lab[q][k]; k++) {
+            char ch = hdg_lab[q][k];
+            lab_ix[q][k] = (u8)(ch >= '0' && ch <= '6' ? ch - '0' : 7 + (ch == 'N' ? 0 : ch == 'E' ? 1 : ch == 'S' ? 2 : 3));
+        }
+    glyphs_init();
+    lab_ok = 1;
+}
+
+static void hdg_base(int hd)                             /* fondo + rayitas de una copia ya hecha */
+{
     const u8 *p;
-    if (hd == s_hdg) return;
-    s_hdg = hd;                                          /* la rosa solo gira de grado en grado */
-    if (gyro) {                                          /* fondo + rayitas cortas de una copia ya hecha */
+    if (gyro) {
         p = gyro + (hd % GYN) * GY_SZ;
-        for (y = GY_Y0; y <= GY_Y1; y++, p += GY_N)
-            gfx_memcpy(S.base + (s32)y * SCR_STRIDE + GY_B0, p, GY_N);
+        gfx_blit(S.base + (s32)GY_Y0 * SCR_STRIDE + GY_B0, p, GY_ROWS, GY_N, SCR_STRIDE, GY_N);
     } else {
         restore(COL2, ROW2);
         gyro_tick_set(hd % GYN);
     }
-    for (j = 0; j < 12; j++) {                           /* rayitas largas y numeros, encima */
-        a = (u16)(((30L * j - hd + 360) % 360) * 65536L / 360);
-        tick(COL2, ROW2, a, 196, 226, C_WHITE);
-        label_at(COL2, ROW2, a, 150, lab[j], j % 3 ? C_WHITE : C_GREEN);
+}
+
+static void hdg_ticks(int hd)                            /* rayitas largas, si no vienen en la copia */
+{
+#if GYN != 30
+    int j;
+    for (j = 0; j < 12; j++)
+        tick(COL2, ROW2, (u16)(((30L * j - hd + 360) % 360) * 65536L / 360), 196, 226, C_WHITE);
+#endif
+    (void)hd;
+}
+
+static void hdg_labels(int hd)                           /* numeros de la rosa */
+{
+    int q, j, s = hd / 30, k = hd - 30 * s, x, y, c;
+    const s16 *xy;
+    const char *t;
+    hdg_tables();
+    xy = &lab_xy[k][0][0];
+    j = s;
+    for (q = 0; q < 12; q++, xy += 2, j = j == 11 ? 0 : j + 1) {   /* el numero j esta en el sitio q cuando la rosa ha girado s * 30 grados */
+        t = hdg_lab[j];
+        x = xy[0] - (t[1] ? 6 : 3) + 1; y = xy[1] - 3;
+        for (c = 0; t[c]; c++, x += 6) {
+            if (!gl_lab) { char b[2]; b[0] = t[c]; b[1] = 0; gfx_text(&S, x, y, b, j % 3 ? C_WHITE : C_GREEN); continue; }
+            glyph_put(x, y, gl_lab + ((((s32)lab_ix[j][c] << 3) + (x & 7)) << GL_SH));
+        }
     }
-    u_num(b, hd, 3, '0');
-    gfx_text(&S, COL2 - 8, ROW2 - 3, b, C_RED);
+}
+
+static void hdg_num(int hd)                              /* rumbo en el centro (sin divisiones de la biblioteca) */
+{
+    char b[4];
+    int c = 0, i;
+    hdg_tables();
+    while (hd >= 100) { hd -= 100; c++; }
+    b[0] = (char)('0' + c);
+    c = 0;
+    while (hd >= 10) { hd -= 10; c++; }
+    b[1] = (char)('0' + c); b[2] = (char)('0' + hd); b[3] = 0;
+    if (!gl_num) { gfx_text(&S, COL2 - 8, ROW2 - 3, b, C_RED); return; }
+    for (i = 0; i < 3; i++) glyph_put(num_x[i], ROW2 - 3, gl_num + ((((s32)(b[i] - '0')) << 2) + i) * GL_WORDS);
+}
+
+/* (Probado: componer la rosa en RAM alta y volcarla de una vez no ayuda, 20,7 ms contra 17 ms: la copia de entrada y de salida cuesta
+ * lo que se ahorra en las letras; ver doc/horizonte_rosa.md) */
+static void hdg_paint(int hd)
+{
+    hdg_base(hd); hdg_ticks(hd); hdg_labels(hd); hdg_num(hd);
+}
+
+static void draw_hdg(const Flight *f)
+{
+    u16 h = (u16)fxmul(f->psi, RAD2BAM);
+    int hd = (int)((((s32)h * 360L + 32768L) >> 16) % 360);
+    if (hd == s_hdg) return;
+    s_hdg = hd;                                          /* la rosa solo gira de grado en grado */
+    hdg_paint(hd);
 }
 
 static void draw_vsi(const Flight *f)
@@ -718,8 +998,69 @@ void panel_update(u8 *scr, const Flight *f, const Radios *r, const Atc *a,
     draw_fps(pi);
 }
 
+/* El panel en seis trozos independientes (estudio de interrupciones): 0 horizonte, 1 velocidad y altitud, 2 variometro y rumbo,
+ * 3 viraje, rpm y CDI, 4 radios y motor, 5 mensajes ATC y FPS. Cada llamada cuesta una fraccion del panel entero. */
+void panel_piece(u8 *scr, const Flight *f, const Radios *r, const Atc *a, const PanelInfo *pi, int k)
+{
+    S.base = scr;
+    switch (k) {
+    case 0: draw_ai(f); break;
+    case 1: draw_asi(f); draw_alt(f); break;
+    case 2: draw_vsi(f); draw_hdg(f); break;
+    case 3: draw_tc(f); draw_rpm(f); draw_cdi(r); break;
+    case 4: draw_radios(r, pi); draw_engine(f, r); break;
+    default: draw_msgs(a, pi); draw_fps(pi); break;
+    }
+}
+
 void panel_all(u8 *scr, const Flight *f, const Radios *r, const Atc *a, const PanelInfo *pi)
 {
     int i;
     for (i = 0; i < PANEL_PARTS; i++) panel_update(scr, f, r, a, pi, i);
 }
+
+/* El panel entero como trabajo reanudable (estudio de interrupciones): cada llamada pinta instrumentos hasta que cambia el contador
+ * de 50 Hz respecto a tick0 y sigue en la siguiente. El horizonte va por bandas de AI_BAND filas; el resto, de instrumento en
+ * instrumento. Devuelve 1 al terminar una vuelta completa. */
+#ifndef AI_BAND
+#define AI_BAND 6
+#endif
+static int pj_u, pj_y;
+
+int panel_job_step(u8 *scr, const Flight *f, const Radios *r, const Atc *a, const PanelInfo *pi, u32 tick0)
+{
+    int qb, qh;
+    s32 hh;
+    S.base = scr;
+    for (;;) {
+        switch (pj_u) {
+        case 0:                                   /* horizonte: solo si cambia el alabeo (grados) o el cabeceo (pixeles) */
+            qb = (int)(((u16)fxmul(f->phi, RAD2BAM) + 91U) / 182U);
+            hh = fxmul(f->the, 57L * 65536L) * RY / 25 >> 16;
+            qh = (int)CLAMP(hh, -RY * 2, RY * 2);
+            if (qb == s_ai_b && qh == s_ai_h) { pj_u = 3; break; }
+            s_ai_b = qb; s_ai_h = qh;
+            ai_begin(f); pj_y = ROW1 - RY + 1; pj_u = 1;
+            break;
+        case 1:
+            ai_rows(pj_y, MIN(pj_y + AI_BAND - 1, ROW1 + RY - 1));
+            pj_y += AI_BAND;
+            if (pj_y > ROW1 + RY - 1) pj_u = 2;
+            break;
+        case 2: ai_end(); pj_u = 3; break;
+        case 3: draw_asi(f); pj_u++; break;
+        case 4: draw_alt(f); pj_u++; break;
+        case 5: draw_vsi(f); pj_u++; break;
+        case 6: draw_hdg(f); pj_u++; break;
+        case 7: draw_tc(f); pj_u++; break;
+        case 8: draw_rpm(f); pj_u++; break;
+        case 9: draw_cdi(r); pj_u++; break;
+        case 10: draw_radios(r, pi); pj_u++; break;
+        case 11: draw_engine(f, r); pj_u++; break;
+        case 12: draw_msgs(a, pi); draw_fps(pi); pj_u = 0; return 1;
+        }
+        if (plat_ticks() != tick0) return 0;
+    }
+}
+
+void panel_surface(u8 *scr) { S.base = scr; }     /* para src/bench.c */

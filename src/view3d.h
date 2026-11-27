@@ -41,6 +41,10 @@ void view_sky(Surface *s, const Camera *c);
 void view_world(Surface *s, const Camera *c, World *w);
 /* la misma vista partida: begin reune y ordena (devuelve el coste total), step dibuja objetos hasta gastar el presupuesto */
 s32  view_world_begin(const Camera *c, World *w);
+void view_begin_init(const Camera *c, World *w);     /* la misma reunion y orden en pasos pequenos (ver view3d.c) */
+int  view_gather_step(const Camera *c, int n);
+s32  view_sort_step(int n);
+extern int view_wire;                                /* 1 = solo alambre */
 int  view_world_step(Surface *s, const Camera *c, s32 budget);   /* 1 si no quedan objetos */
 /* avion exterior: posicion Q8, matriz de actitud (filas derecha/arriba/adelante); gear = 0 oculta el tren */
 void view_model(Surface *s, const Camera *c, const Model *mdl,

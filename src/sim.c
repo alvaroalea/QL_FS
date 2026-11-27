@@ -3,10 +3,20 @@
 #include "platform.h"
 #include "sound.h"
 #include "util.h"
+#include "qfs_prof.h"
 #include <string.h>
 #include <stdio.h>
 
 Sim sim;
+#ifdef USE_SCHED
+static volatile int phys_hold;           /* 1: el hilo principal cambia el mundo o el avion (teselas, reinicio): la interrupcion no integra */
+static volatile int phys_missed;         /* pasos que la interrupcion dejo pasar; los recupera el hilo principal */
+#define HOLD_ON()  (phys_hold = 1)
+#define HOLD_OFF() (phys_hold = 0)
+#else
+#define HOLD_ON()
+#define HOLD_OFF()
+#endif
 static u8 *backbuf;                      /* vista 3D: se dibuja aqui (RAM alta, sin contencion) y se vuelca de golpe a la pantalla */
 
 static int down(int k) { return sim.keys[k]; }
@@ -123,6 +133,7 @@ void sim_reset(void)
     s32 sx, cx;
     s32 px, py;
     u16 ph;
+    HOLD_ON();
     if (sim.start_rwy >= ap->nrwy) sim.start_rwy = 0;
     rw = &ap->rwy[sim.start_rwy];               /* pista y sentido elegidos (cada cabecera es una entrada) */
     sx = isin(rw->hdg); cx = icos(rw->hdg);
@@ -163,6 +174,7 @@ void sim_reset(void)
     atc_init(&sim.atc);
     sim.crash_shown = 0;
     sim.nsteps = 0;
+    HOLD_OFF();
 }
 
 /* --------------------------------------------------------------- partida
@@ -206,7 +218,7 @@ static void snap_restore(void)
     sim.r.n1 = sim.r.n2 = NULL;
     sim.clock = p->clock; sim.clock_sub = p->clock_sub;
     sim.view_mode = p->view_mode; sim.look = p->look; sim.zoom = p->zoom;
-    sim.nsteps = 25 * 6;                   /* sin el rotulo del aeropuerto en la linea de estado */
+    sim.nsteps = (u32)PHYS_HZ * 6;                   /* sin el rotulo del aeropuerto en la linea de estado */
 }
 
 static int snap_save(void)
@@ -418,7 +430,7 @@ static int build_status(void)
     u_cat(sim.status, "  ", 84);
     u_cat(sim.status, sim.ac.name, 84);
     if (sim.paused) u_cat(sim.status, "  PAUSA", 84);
-    if (sim.nsteps < 25 * 6) { u_cat(sim.status, "  ", 84); u_cat(sim.status, sim.w.apt[sim.start_apt].name, 84); }
+    if (sim.nsteps < (u32)PHYS_HZ * 6) { u_cat(sim.status, "  ", 84); u_cat(sim.status, sim.w.apt[sim.start_apt].name, 84); }
     if (f->stall_warn) { u_cat(sim.status, "  PERDIDA!", 84); warn |= 1; }
     if (sim.ac.retract && !f->gear_down && f->agl < FXI(150) && !f->on_ground) { u_cat(sim.status, "  TREN!", 84); warn |= 2; }
     if (!f->auto_coord) u_cat(sim.status, "  TIMON MANUAL", 84);
@@ -472,6 +484,67 @@ static void view_part_b(void)
     gfx_memcpy(sim.scr + (s32)VIEW_Y0 * SCR_STRIDE, backbuf, (s32)VIEW_H * SCR_STRIDE);
 }
 
+/* ---- vista en trozos (estudio de interrupciones, doc/interrupciones.md): cada llamada trabaja hasta el final del turno de 20 ms
+ * (cuando cambia el contador de 50 Hz) y continua en la siguiente. Los puntos de parada estan entre teselas, entre cuatro
+ * elementos del orden, entre objetos y entre bandas de 16 filas del volcado. Devuelve 1 al completar un cuadro. */
+int sim_vjob_wire;
+static int vj_state;
+static s32 vj_total;
+static int vj_row;
+#define VJ_BAND 16
+
+int sim_vjob_step(u32 tick0)
+{
+    for (;;) {
+#ifdef BENCH_UNITS
+        PROF_MARK(100 + vj_state);
+#endif
+        switch (vj_state) {
+        case 0:                                   /* camara, fondo y lista de teselas */
+            setup_camera(view_am);
+            view_ax = sim.f.x; view_ay = sim.f.y; view_az = sim.f.z - (sim.ac.gear_h >> 8);
+            view_mode_a = sim.view_mode;
+            view_wire = sim_vjob_wire;
+            if (view_wire) gfx_clear(&sim.view, fill_tab[F_BLACK]); else view_sky(&sim.view, &sim.cam);
+            HOLD_ON();                            /* world_tiles_near reorganiza la cache de teselas que lee la fisica */
+            view_begin_init(&sim.cam, &sim.w);
+            HOLD_OFF();
+            vj_state = 1;
+            break;
+        case 1:
+            if (view_gather_step(&sim.cam, 1)) vj_state = 2;
+            break;
+        case 2:
+            vj_total = view_sort_step(4);
+            if (vj_total >= 0) vj_state = 3;
+            break;
+        case 3:
+            if (view_world_step(&sim.view, &sim.cam, 1)) vj_state = 4;
+            break;
+        case 4:
+            if (view_mode_a != VIEW_COCKPIT)
+                view_model(&sim.view, &sim.cam, &sim.ac.model, view_ax, view_ay, view_az, view_am,
+                           !(sim.ac.retract && sim.f.gear_pos <= 0));
+            if (sim.f.crash) {
+                const char *m = crash_msg(sim.f.crash);
+                gfx_rect(&sim.view, VIEW_CX - gfx_textw(m) / 2 - 4, 40, VIEW_CX + gfx_textw(m) / 2 + 4, 52, fill_tab[F_BLACK]);
+                gfx_text(&sim.view, VIEW_CX - gfx_textw(m) / 2, 43, m, C_RED);
+            }
+            vj_row = 0; vj_state = 5;
+            break;
+        default:
+            gfx_memcpy(sim.scr + (s32)(VIEW_Y0 + vj_row) * SCR_STRIDE, backbuf + (s32)vj_row * SCR_STRIDE, (s32)VJ_BAND * SCR_STRIDE);
+            vj_row += VJ_BAND;
+            if (vj_row >= VIEW_H) { vj_state = 0; view_wire = 0; return 1; }
+            break;
+        }
+#ifdef BENCH_UNITS
+        PROF_MARK(110);
+#endif
+        if (plat_ticks() != tick0) return 0;
+    }
+}
+
 static void render_panel(void)
 {
     PanelInfo pi;
@@ -491,6 +564,7 @@ void sim_render(void)                            /* vista entera y panel (lo usa
     render_panel();
 }
 
+#ifndef USE_SCHED
 static int nav_sub;                              /* pasos de fisica desde la ultima actualizacion de navegacion y ATC */
 
 void sim_frame(void)
@@ -541,6 +615,111 @@ void sim_frame(void)
     sim.frames++;
     plat_frame();
 }
+
+void sim_stop(void) { }
+#else
+/* ------------------------------------------------------------ planificador por interrupciones (doc/interrupciones.md)
+ * La fisica (controls_step + flight_step, 1/12,5 s) corre dentro de la interrupcion de 50 Hz en uno de cada 4 turnos de 20 ms.
+ * El resto reparte los turnos de un patron de 32 con la letra de cada uno; si la tarea anterior no ha acabado cuando llega un
+ * turno, ese turno se salta (no hay retraso acumulado):
+ *   F fisica (la hace la interrupcion; aqui solo se recuperan los pasos que dejo pasar)   K teclado (3 filas), mandos, sonido
+ *   E motores   Y navegacion y ATC   Q panel (reanudable)   V vista 3D (reanudable; solida o de alambre, tecla W)   N nada */
+#ifndef SCHED_PAT
+#define SCHED_PAT "FKQVFKVVFKEVFKVVFKYNFKVVFKEVFKVV"        /* 12,5 pasos/s, teclado 12,5/s, panel y vista por los turnos libres */
+#endif
+static const char sch_pat[] = SCHED_PAT;
+static u32 sch_last;
+static int sch_on;
+static int sch_q_new = 1, sch_kn;
+static PanelInfo sch_pi;
+
+static void sch_phys(void)                     /* un paso de fisica (en la interrupcion o, recuperado, en el hilo principal) */
+{
+    if (sim.paused) return;
+    controls_step();
+    flight_step(&sim.f, &sim.w);
+    sim.nsteps++;
+    sim.fps_n++;
+    sim.clock_sub += 4;                        /* 4 turnos de 50 Hz por paso */
+    if (sim.clock_sub >= TICKS_HZ) { sim.clock_sub -= TICKS_HZ; sim.clock = (sim.clock + 1) % 86400UL; }
+}
+
+static void sch_isr(void)                      /* tm_poll, 50 Hz, modo supervisor, pila propia */
+{
+    if (plat_ticks() & 3) return;
+    if (phys_hold) { phys_missed++; return; }
+    sch_phys();
+}
+
+void sim_stop(void)
+{
+    plat_isr_set(0);
+    sch_on = 0;
+}
+
+static void sch_start(void)
+{
+    sch_on = 1;
+    sch_last = plat_ticks();
+    phys_hold = 0; phys_missed = 0;
+    sch_q_new = 1; sch_kn = 0;
+    plat_isr_set(sch_isr);
+}
+
+void sim_frame(void)                           /* se llama en bucle: cada vez que cambia el contador de 50 Hz hace la tarea del turno */
+{
+    u32 t = plat_ticks();
+    int contact, ch;
+    if (!sch_on) sch_start();
+    if (t == sch_last) return;
+    sch_last = t;
+    while (phys_missed > 0 && !phys_hold) { phys_missed--; sch_phys(); }
+    ch = sch_pat[t & 31];
+    switch (ch) {
+    case 'K':
+        read_keys(0);
+        controls_frame();
+        contact = hit(KEY_K);
+        if (contact) {
+            nav_update(&sim.r, &sim.w, &sim.f);
+            atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 1);
+        }
+        if (hit(KEY_W)) sim_vjob_wire = !sim_vjob_wire;
+        if ((++sch_kn & 3) == 0) atc_scroll(&sim.atc);
+        snd_update(&sim.f, &sim.r, sim.atc.new_msg, sim.f.crash);
+        sim.atc.new_msg = 0;
+        if (sim.show_fps) {                    /* vistas y pasos de fisica por segundo (decimas), en ventanas de al menos 1 s */
+            u32 dt = t - sim.fps_t0;
+            if (dt >= 50) {
+                sim.fps10 = (int)((u32)sim.fps_v * 500UL / dt); sim.lps10 = (int)((u32)sim.fps_n * 500UL / dt);
+                sim.fps_v = sim.fps_n = 0; sim.fps_t0 += dt;
+            }
+        }
+        sim.frames++;
+        break;
+    case 'E': flight_engines(&sim.f); break;
+    case 'Y':
+        nav_update(&sim.r, &sim.w, &sim.f);
+        atc_update(&sim.atc, &sim.w, &sim.f, &sim.r, 0);
+        break;
+    case 'Q':
+        if (sch_q_new) {                       /* datos de la linea de estado de la vuelta que empieza */
+            sch_pi.clock = sim.clock;
+            sch_pi.warn = build_status();
+            sch_pi.status = sim.status;
+            sch_pi.fps10 = sim.show_fps ? sim.fps10 : -2;
+            sch_pi.lps10 = sim.lps10;
+            sch_q_new = 0;
+        }
+        if (panel_job_step(sim.scr, &sim.f, &sim.r, &sim.atc, &sch_pi, t)) sch_q_new = 1;
+        break;
+    case 'V':
+        if (sim_vjob_step(t)) sim.fps_v++;
+        break;
+    default: break;
+    }
+}
+#endif
 
 /* --------------------------------------------------------------- menu */
 static World mw;                                 /* escenario del menu, abierto solo para leer la lista de aeropuertos */
@@ -645,6 +824,7 @@ int sim_menu(char *acf, char *scn, int *hour)
         gfx_text(&s, 150, 216, "ENTER = VOLAR     ESC = SALIR", C_GREEN);
         gfx_text(&s, 150, 228, "EN VUELO: R = SIGUIENTE AEROPUERTO", C_RED);
         if (msg[0]) gfx_text(&s, 150, 242, msg, C_GREEN);
+        if (plat_low_warn()) gfx_text(&s, 150, 249, "AVISO: PROGRAMA EN RAM LENTA (CONTENIDA)", C_RED);
         plat_frame();
     }
     world_close(&mw);

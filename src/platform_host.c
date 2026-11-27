@@ -18,6 +18,12 @@ u8 *plat_screen(void) { return screen; }
 u32 plat_ticks(void) { return host_ticks; }
 int plat_keyrow(int row) { return host_rows[row & 7]; }
 void plat_frame(void) {}
+void plat_himem_init(void) {}
+int plat_low_warn(void) { return 0; }
+int plat_run(int (*fn)(void)) { return fn(); }
+static void (*isr_fn)(void);
+void plat_isr_set(void (*fn)(void)) { isr_fn = fn; }
+void host_tick(void) { host_ticks++; if (isr_fn) isr_fn(); }     /* un turno de 50 Hz: contador e interrupcion (pruebas del planificador) */
 void psg_write(int reg, int val) { psg_regs[reg & 15] = val; }
 
 void plat_path(char *out, const char *name)

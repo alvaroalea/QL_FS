@@ -2,6 +2,7 @@
 #   make            -> build/qfs.img y build/qfs.win (por defecto)
 #   make build/qfs  -> solo el ejecutable QDOS
 #   make SOLO_C=1   -> sin ensamblador (para aislar fallos de ql68k.s)
+#   make SCHED=0    -> bucle sin planificador de interrupciones (por omision SCHED=1)
 #
 # Requiere: qcc en el PATH y las cabeceras/librerias de C68 en
 # /usr/local/share/qdos (como en el port de Elite).
@@ -16,6 +17,12 @@ ASMDEFS =
 ASMOBJ  = src/qdos68k.o
 else
 ASMOBJ  = src/ql68k.o src/qdos68k.o
+endif
+# SCHED=1 (por omision): fisica a 12,5 Hz dentro de la interrupcion de 50 Hz y el resto por turnos (doc/interrupciones.md);
+# make SCHED=0: el bucle de siempre (cuadros seguidos, fisica a 25 Hz por recuperacion de tiempo)
+SCHED ?= 1
+ifeq ($(SCHED),1)
+ASMDEFS += -DUSE_SCHED
 endif
 CFLAGS  = -O -Isrc -DPLAT_QL $(ASMDEFS)
 

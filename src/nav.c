@@ -105,10 +105,13 @@ void nav_update(Radios *r, World *w, const Flight *f)
     r->marker = 0;
     {
         const Nav *n = w->nav;
+        s32 lim;
         for (i = w->nnav; i > 0; i--, n++) {
             if (n->type < NAV_OM || n->type > NAV_IM) continue;
+            lim = 300 + (z - n->z) / 4;          /* rechazo rapido sin raiz: la distancia no baja de max(|dx|, |dy|) */
+            if (ABS(n->x - x) >= lim || ABS(n->y - y) >= lim) continue;
             d = dist_m(n->x - x, n->y - y);
-            if (d < 300 + (z - n->z) / 4) { r->marker = n->type; break; }
+            if (d < lim) { r->marker = n->type; break; }
         }
     }
 }

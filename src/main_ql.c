@@ -10,7 +10,11 @@
 #include "qlvars.h"
 #include "qfs_prof.h"
 
-long _stack = 32768L;                  /* c68: pila de la tarea */
+#ifdef NO_HIMEM
+long _stack = 32768L;                  /* c68: pila de la tarea (en la RAM contenida) */
+#else
+long _stack = 6144L;                   /* pila inicial, solo hasta que plat_himem_init cambia a una de 24 KB en RAM alta */
+#endif
 char _prog_name[] = "QFS";
 
 extern char plat_dev[8];
@@ -18,7 +22,7 @@ extern char plat_dev[8];
 extern void prof_run(void);
 #endif
 
-int main(int argc, char **argv)
+static int qfs_main(void)
 {
     char scn[48], acf[48];
     int hour, r;
@@ -43,10 +47,21 @@ int main(int argc, char **argv)
             continue;
         }
         while (!sim.quit) sim_frame();
+        sim_stop();
         world_close(&sim.w);
         snd_off();
     }
     snd_off();
     plat_exit();
     return 0;
+}
+
+int main(int argc, char **argv)
+{
+#ifdef NO_HIMEM
+    return qfs_main();
+#else
+    plat_himem_init();                 /* tapon de la RAM contenida, pila y monton en la alta */
+    return plat_run(qfs_main);
+#endif
 }

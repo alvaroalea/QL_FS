@@ -28,5 +28,7 @@ void panel_build(u8 *screen, const AircraftDef *ac);   /* dibuja el fondo estati
  * y el teletipo ATC se pintan siempre */
 void panel_update(u8 *screen, const Flight *f, const Radios *r, const Atc *a,
                   const PanelInfo *pi, int part);
+void panel_piece(u8 *screen, const Flight *f, const Radios *r, const Atc *a, const PanelInfo *pi, int k);   /* 0..5, ver panel.c */
+int  panel_job_step(u8 *screen, const Flight *f, const Radios *r, const Atc *a, const PanelInfo *pi, u32 tick0);   /* panel reanudable por turnos, ver panel.c */
 void panel_all(u8 *screen, const Flight *f, const Radios *r, const Atc *a, const PanelInfo *pi);
 #endif

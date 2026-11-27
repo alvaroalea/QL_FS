@@ -308,11 +308,19 @@ int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy_, s32 *out, 
 }
 #endif
 
+int view_wire;                                /* 1 = solo alambre (sin relleno ni orden de caras): estudio de rendimiento, doc/interrupciones.md */
+
 /* rellena y contornea una cara ya proyectada (m vertices en p) */
 static void paint_face(Surface *s, int a, const s32 *p, int m)
 {
     int i;
     vstats.faces++;
+    if (view_wire) {                              /* alambre: el contorno con el color de la cara */
+        int col = (a & FA_OUTLINE) ? FA_LCOL(a) : (FA_FILL(a) % 3) + 1;
+        for (i = 0; i < m; i++)
+            gfx_line(s, p[2 * i], p[2 * i + 1], p[2 * ((i + 1) % m)], p[2 * ((i + 1) % m) + 1], col);
+        return;
+    }
     if (!(a & FA_NOFILL)) gfx_poly32(s, m, p, fill_tab[FA_FILL(a)]);
     if ((a & FA_NOFILL) || ((a & FA_OUTLINE) && obj_u < 1))
         for (i = 0; i < m; i++)
@@ -475,7 +483,7 @@ static void draw_obj(Surface *s, const Camera *c, const Obj *o)
 {
     const u8 *f = o->f;
     int i, k, n, col;
-    if (o->type == OBJ_SOLID && (o->flags & OF_SORT)) { draw_sorted(s, c, o); return; }
+    if (o->type == OBJ_SOLID && (o->flags & OF_SORT) && !view_wire) { draw_sorted(s, c, o); return; }
     for (i = 0; i < o->nf; i++) {
         n = f[0];
         switch (o->type) {
@@ -543,27 +551,51 @@ static int gather_tile(const Tile *t, const Camera *c, int ni, s32 cx, s32 cy, s
     return ni;
 }
 
-s32 view_world_begin(const Camera *c, World *w)
+static Tile *gtl[TILE_CACHE];                 /* teselas de la vista en curso y estado de la reunion/orden incrementales */
+static int g_nt, g_i, g_ni, g_si;
+static s32 g_cx, g_cy;
+
+/* Reunion y orden en pasos pequenos (para repartirlos entre varias interrupciones): view_begin_init busca las teselas;
+ * view_gather_step reune n teselas mas (1 = terminado); view_sort_step ordena n elementos mas por insercion (-1 mientras queden;
+ * al terminar deja la lista lista y devuelve el coste total). */
+void view_begin_init(const Camera *c, World *w)
 {
-    Tile *tl[TILE_CACHE];
-    int nt, i, ni = 0, j;
-    s32 total = 0;
-    s32 dmax = c->vis, cx = c->x >> 8, cy = c->y >> 8;
-    Item t;
     vstats.objs = vstats.faces = vstats.lines = vstats.verts = 0;
-    nt = world_tiles_near(w, cx, cy, dmax, tl, TILE_CACHE);
-    vstats.tiles = nt;
-    /* 1) objetos de suelo: primero los grandes (campos, lagos), luego pistas */
-    for (i = 0; i < nt; i++) ni = gather_tile(tl[i], c, ni, cx, cy, dmax);
+    g_cx = c->x >> 8; g_cy = c->y >> 8;
+    g_nt = world_tiles_near(w, g_cx, g_cy, c->vis, gtl, TILE_CACHE);
+    vstats.tiles = g_nt;
+    g_i = 0; g_ni = 0; g_si = 1;
+}
+
+int view_gather_step(const Camera *c, int n)
+{
+    while (n-- > 0 && g_i < g_nt) g_ni = gather_tile(gtl[g_i++], c, g_ni, g_cx, g_cy, c->vis);
+    return g_i >= g_nt;
+}
+
+s32 view_sort_step(int n)
+{
+    Item t;
+    int j, i;
+    s32 total = 0;
     /* orden descendente de clave: suelo (por tamano) y luego solidos de lejos a cerca */
-    for (i = 1; i < ni; i++) {
+    while (n-- > 0 && g_si < g_ni) {
+        i = g_si++;
         t = items[i]; j = i - 1;
         while (j >= 0 && items[j].key < t.key) { items[j + 1] = items[j]; j--; }
         items[j + 1] = t;
     }
-    n_items = ni; next_item = 0;
-    for (i = 0; i < ni; i++) total += (s32)items[i].o->nv + items[i].o->nf;
+    if (g_si < g_ni) return -1;
+    n_items = g_ni; next_item = 0;
+    for (i = 0; i < g_ni; i++) total += (s32)items[i].o->nv + items[i].o->nf;
     return total;
+}
+
+s32 view_world_begin(const Camera *c, World *w)
+{
+    view_begin_init(c, w);
+    view_gather_step(c, g_nt);
+    return view_sort_step(g_ni);
 }
 
 /* Segunda mitad: dibuja objetos de la lista, en orden, hasta gastar `budget` de coste (siempre al menos uno). Devuelve 1 si ya

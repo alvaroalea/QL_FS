@@ -104,7 +104,22 @@ extern const u8  font5x7[64 * 7];
 
 /* ---------------- tiempo ---------------- */
 #define TICKS_HZ    50           /* interrupcion de cuadro del QL (PAL) */
+#if defined(USE_SCHED) && !defined(PHYS_DT)   /* planificador por interrupciones (doc/interrupciones.md): fisica a 12,5 Hz y motores aparte */
+#define PHYS_DT     5243L        /* 1/12,5 s en Q16 */
+#define PHYS_HZ     12           /* (solo aproximado: el reloj del simulador se cuenta con los 50 Hz) */
+#endif
+#if defined(USE_SCHED) && !defined(ENG_EXTERNAL)
+#define ENG_EXTERNAL             /* flight_engines() la llama el planificador (tarea E) */
+#endif
+#if defined(USE_SCHED) && !defined(AI_INCR)
+#define AI_INCR                  /* horizonte con una division por cuadro (panel.c): 160 -> 110 ms */
+#endif
+#if defined(AI_INCR) && !defined(AI_DIFF) && !defined(AI_NODIFF)
+#define AI_DIFF                  /* horizonte: solo se repintan los pixeles que cambian (panel.c) */
+#endif
+#ifndef PHYS_DT
 #define PHYS_HZ     25           /* paso fijo de fisica */
 #define PHYS_DT     2621L        /* 1/25 s en Q16 */
+#endif                           /* (se puede cambiar con -DPHYS_DT=5243L -DPHYS_HZ=12: estudio de la fisica a 12,5 Hz) */
 
 #endif

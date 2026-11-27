@@ -127,10 +127,23 @@ static void engines_step(Flight *f, s32 *t_left, s32 *t_right, s32 dt)
 #define HIT_SKIP_MAX 25     /* maximo de pasos de fisica seguidos sin comprobar colision */
 #endif
 
+void flight_engines(Flight *f)
+{
+    const AircraftDef *a = f->ac;
+    s32 tl, tr, tt, ff;
+    engines_step(f, &tl, &tr, PHYS_DT * ENG_N);
+    tt = tl + tr;
+    f->aT = fxmul(tt << 4, f->imass) << 4;                  /* tt / mass en Q16 */
+    f->asym = a->n_eng == 2 ? fxmul(fxmul((tl - tr) << 4, f->imass) << 4, a->eng_y / 3) : 0;   /* (T1-T2)/m * brazo/3 */
+    ff = f->e[0].ff + (a->n_eng > 1 ? f->e[1].ff : 0);      /* combustible */
+    f->fuel -= fxmul(ff, PHYS_DT * ENG_N) / 3600;
+    if (f->fuel < 0) f->fuel = 0;
+}
+
 void flight_step(Flight *f, World *w)
 {
     const AircraftDef *a = f->ac;
-    s32 hk, gt, cl, cd, clmax, as, vi, v2, qa, tl, tr, tt;
+    s32 hk, gt, cl, cd, clmax, as, vi, v2, qa;
     s32 sg, cg, sp, cp, sa, ca, vc, dv, dg, dpsi, acmd, qn, pc, gz, vh, dx, dy, vr;
     s32 asym, fp;
     int was_ground = f->on_ground, hit, tick = (f->eng_n == 0);
@@ -159,18 +172,14 @@ void flight_step(Flight *f, World *w)
     fp = f->flap_pos;
 
     /* motores: cambian despacio (constantes de tiempo de medio segundo o mas), asi que se calculan cada ENG_N pasos con el
-     * paso de tiempo multiplicado; en los demas se reutiliza el empuje (aT y asimetria, en Q16) del ultimo calculo */
-    if (tick) {
-        s32 ff;
-        engines_step(f, &tl, &tr, PHYS_DT * ENG_N);
-        tt = tl + tr;
-        f->aT = fxmul(tt << 4, f->imass) << 4;                  /* tt / mass en Q16 */
-        f->asym = a->n_eng == 2 ? fxmul(fxmul((tl - tr) << 4, f->imass) << 4, a->eng_y / 3) : 0;   /* (T1-T2)/m * brazo/3 */
-        ff = f->e[0].ff + (a->n_eng > 1 ? f->e[1].ff : 0);      /* combustible */
-        f->fuel -= fxmul(ff, PHYS_DT * ENG_N) / 3600;
-        if (f->fuel < 0) f->fuel = 0;
-    }
+     * paso de tiempo multiplicado; en los demas se reutiliza el empuje (aT y asimetria, en Q16) del ultimo calculo.
+     * Con -DENG_EXTERNAL los motores no se calculan aqui: los llama quien reparte las tareas (flight_engines, doc/interrupciones.md) */
+#ifdef ENG_EXTERNAL
+    tick = 1;
+#else
+    if (tick) flight_engines(f);
     if (++f->eng_n >= ENG_N) f->eng_n = 0;
+#endif
 
     /* aerodinamica */
     as = a->alpha_stall - fxmul(a->dalpha_flap, fp);
@@ -300,7 +309,7 @@ void flight_step(Flight *f, World *w)
         if (hit == 1) f->crash = CRASH_BUILDING;
         else if (hit == 2) f->crash = CRASH_MOUNTAIN;
         else if (hit == 3 && f->agl <= FXI(1)) f->crash = CRASH_WATER;
-        step = ((f->gs >> 16) + (f->v >> 16) + 2) / 25 + 1;        /* m por paso (1/25 s), por exceso */
+        step = ((f->gs >> 16) + (f->v >> 16) + 2) / PHYS_HZ + 1;    /* m por paso, por exceso */
         n = w->hit_near / step - 1;
         f->hit_wait = (int)CLAMP(n, 0L, (s32)HIT_SKIP_MAX);
         f->hit_gen = w->gen;

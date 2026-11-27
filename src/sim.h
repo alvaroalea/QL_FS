@@ -60,7 +60,10 @@ extern int sim_start_apt, sim_start_mode, sim_start_rwy, sim_start_pt, sim_resto
 
 int  sim_init(const char *scn, const char *acf, int hour);
 void sim_reset(void);
+void sim_stop(void);         /* termina el vuelo: con USE_SCHED quita la fisica de la interrupcion; si no, no hace nada */
 void sim_frame(void);
+int  sim_vjob_step(u32 tick0);   /* vista en trozos: trabaja hasta que cambie el contador de 50 Hz respecto a tick0; 1 = cuadro completo */
+extern int sim_vjob_wire;        /* 1: la vista en trozos se dibuja solo con alambre */
 void sim_render(void);       /* solo dibujo (lo usa el PC para las capturas) */
 extern const s32 land_dist[LAND_PTS];   /* distancia al umbral (m) de cada punto */
 int  sim_menu(char *acf, char *scn, int *hour);

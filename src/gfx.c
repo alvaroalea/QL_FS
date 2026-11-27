@@ -37,6 +37,26 @@ void gfx_clip(Surface *s, int x0, int y0, int x1, int y1)
 }
 
 #ifndef USE_ASM_GFX
+void gfx_blit(u8 *dst, const u8 *src, s32 rows, s32 n, s32 dstride, s32 sstride)
+{
+    while (rows-- > 0) { gfx_memcpy(dst, src, n); dst += dstride; src += sstride; }
+}
+void gfx_glyph(u8 *p, const u16 *spr, s32 cells)
+{
+    int r;
+    u16 w;
+    for (r = 0; r < 7; r++, p += SCR_STRIDE, spr += 4) {
+        w = (u16)(((u16)p[0] << 8) | p[1]);
+        w = (u16)((w & spr[0]) | spr[1]);
+        p[0] = (u8)(w >> 8); p[1] = (u8)w;
+        if (cells > 1) {
+            w = (u16)(((u16)p[2] << 8) | p[3]);
+            w = (u16)((w & spr[2]) | spr[3]);
+            p[2] = (u8)(w >> 8); p[3] = (u8)w;
+        }
+    }
+}
+
 void gfx_hspan_raw(u8 *row, s32 x0, s32 x1, s32 pat)
 {
     u8 g = (u8)(pat >> 8), r = (u8)pat, m0, m1, m;
@@ -489,10 +509,7 @@ void gfx_copy_rows(u8 *dst, const u8 *src, int bytes)
 
 void gfx_copy_box(u8 *dst, const u8 *src, int x0, int y0, int x1, int y1)
 {
-    int y, b0 = (x0 >> 3) << 1, n = (((x1 >> 3) << 1) + 2) - b0;
-    s32 off;
-    for (y = y0; y <= y1; y++) {
-        off = (s32)y * SCR_STRIDE + b0;
-        gfx_memcpy(dst + off, src + off, n);
-    }
+    int b0 = (x0 >> 3) << 1, n = (((x1 >> 3) << 1) + 2) - b0;
+    s32 off = (s32)y0 * SCR_STRIDE + b0;
+    gfx_blit(dst + off, src + off, y1 - y0 + 1, n, SCR_STRIDE, SCR_STRIDE);
 }

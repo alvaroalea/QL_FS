@@ -18,6 +18,9 @@
 #ifndef PROF_HOLD
 #define PROF_HOLD 0
 #endif
+#ifndef PROF_WIRE
+#define PROF_WIRE 0
+#endif
 #ifndef PROF_N
 #define PROF_N 25
 #endif
@@ -218,6 +221,16 @@ static void asm_test(void)
 }
 #endif
 
+#ifdef PROF_ADDR           /* donde ha puesto QDOS el codigo, los datos, la pila y el monton (marcas 250, id, 0, 4 bytes de la direccion) */
+static int addr_glob;
+static void addr_rep(int id, unsigned long a)
+{
+    int b;
+    PROF_MARK(250); PROF_MARK(id); PROF_MARK(0);
+    for (b = 24; b >= 0; b -= 8) PROF_MARK((int)((a >> b) & 255));
+}
+#endif
+
 void prof_run(void)
 {
     char scn[48], acf[48];
@@ -231,6 +244,19 @@ void prof_run(void)
 #endif
 #ifdef ASM_TEST
     asm_test(); PROF_DUMP(98); return;
+#endif
+#ifdef PROF_ADDR
+    {
+        int loc;
+        void *m1 = malloc(1000), *m2 = malloc(20000), *h1 = plat_alloc_hi(1000), *h2;
+        addr_rep(1, (unsigned long)&prof_run); addr_rep(2, (unsigned long)&addr_glob); addr_rep(3, (unsigned long)&loc);
+        addr_rep(4, (unsigned long)m1); addr_rep(5, (unsigned long)m2); addr_rep(6, (unsigned long)h1);
+        h2 = plat_alloc_hi(70000L); addr_rep(7, (unsigned long)h2);
+        { extern long plat_himem_used; addr_rep(10, (unsigned long)plat_himem_used); }
+        addr_rep(8, (unsigned long)&sim); addr_rep(9, (unsigned long)&fill_tab);
+        PROF_DUMP(97);
+        return;
+    }
 #endif
     plat_path(acf, PROF_SCENE == 4 ? "reactor.acf" : "mono.acf");
     plat_path(scn, "iberia.scn");
@@ -255,6 +281,37 @@ void prof_run(void)
         free(m);
     }
     PROF_BASE(main);
+#ifdef PROF_SCHED_RUN                           /* el simulador entero con el planificador de interrupciones (-DUSE_SCHED): PROF_SCHED_RUN turnos de 20 ms */
+    {
+        u32 t0, k;
+        extern void sim_stop(void);
+        int w;
+        sim_vjob_wire = PROF_WIRE;
+        for (w = 0; w < 400; w++) sim_frame();   /* calienta la cache de teselas */
+        sim.fps_v = 0; sim.frames = 0;
+        k = sim.nsteps;
+        t0 = plat_ticks();
+        PROF_MARK(240);
+        while (plat_ticks() - t0 < PROF_SCHED_RUN) sim_frame();
+        PROF_MARK(241);
+        sim_stop();
+        { long v[4]; int j, b; v[0] = (long)(plat_ticks() - t0); v[1] = (long)(sim.nsteps - k); v[2] = sim.fps_v; v[3] = sim.frames;
+          for (j = 0; j < 4; j++) { PROF_MARK(250); PROF_MARK(203 + j); PROF_MARK(0); for (b = 24; b >= 0; b -= 8) PROF_MARK((int)((v[j] >> b) & 255)); } }
+        PROF_DUMP(97);
+        return;
+    }
+#endif
+#ifdef BENCH_MODE
+    {                                           /* estudio de interrupciones (src/bench.c): primero se calienta la cache de teselas */
+        extern void bench_run(void);
+        int w;
+        for (w = 0; w < 6; w++) sim_frame();
+        bench_run();
+        world_close(&sim.w);
+        snd_off();
+        return;
+    }
+#endif
     PROF_DUMP(99);                              /* descarta la carga */
     for (k = 0; k < PROF_DUMPS; k++) {
         for (i = 0; i < PROF_N; i++) sim_frame();

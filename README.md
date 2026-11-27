@@ -51,6 +51,7 @@ Makefile.pc PC: datos, pruebas, capturas, disco (nombres QDOS en build/disco)
 ```
 make                         # QL completo -> build/qfs.img y build/qfs.win
 make SOLO_C=1                # QL sin rutinas gráficas en ensamblador
+make SCHED=0                 # QL con el bucle de siempre (por omisión SCHED=1: física en la interrupción de 50 Hz y el resto por turnos, doc/interrupciones.md; `make clean` al cambiar)
 make build/qfs               # solo el ejecutable QDOS
 make -f Makefile.pc          # PC: tablas, escenario, aviones, pruebas y capturas PNG
 make -f Makefile.pc ESCALA=1.0   # Iberia a tamaño real (por defecto 0.5)
