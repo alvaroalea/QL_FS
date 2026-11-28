@@ -9,6 +9,8 @@
 #include "qfs_prof.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <dirent.h>
 
 #ifndef PROF_SCENE
 #define PROF_SCENE 1
@@ -305,6 +307,27 @@ void prof_run(void)
 #endif
 #ifdef ASM_TEST
     asm_test(); PROF_DUMP(98); return;
+#endif
+#ifdef LIST_TEST                 /* prueba de plat_list en el QL: crea dos ficheros _sav, lista y vuelca por marcas (200, n, nombres...) */
+    {
+        static char nm[8][10];
+        char pth[48];
+        FILE *fp;
+        int n, j;
+        extern char plat_dev[8];
+        extern int plat_list(const char *ext, char names[][10], int max);
+        strcpy(plat_dev, "win1_");
+        plat_path(pth, "uno.sav"); fp = fopen(pth, "wb"); if (fp) { fputc(1, fp); fclose(fp); }
+        plat_path(pth, "Vuelo2.sav"); fp = fopen(pth, "wb"); if (fp) { fputc(1, fp); fclose(fp); }
+        PROF_MARK(200); PROF_MARK(fp != NULL);
+        n = plat_list("sav", nm, 8);
+        PROF_MARK(201); PROF_MARK(n);
+        for (i = 0; i < n; i++) { PROF_MARK(202); for (j = 0; nm[i][j]; j++) PROF_MARK(nm[i][j]); }
+        {   DIR *d = opendir("win1_"); struct dirent *de; PROF_MARK(210); PROF_MARK(d != NULL);
+            while (d && (de = readdir(d)) != NULL) { PROF_MARK(211); for (j = 0; de->d_name[j]; j++) PROF_MARK(de->d_name[j]); }
+        }
+        PROF_DUMP(98); return;
+    }
 #endif
 #ifdef PROF_ADDR
     {

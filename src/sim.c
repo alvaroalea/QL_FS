@@ -942,7 +942,8 @@ int sim_menu(char *acf, char *scn, int *hour)
     const char *msg = "";
     Surface s;
     int i, k, done = 0, dirty = 1, o_sel, o_hour, o_esc, o_apt, o_mode, o_rwy, o_pt, n;
-    int dlg = 0, sv_len = 0, nlist = 0, lsel = 0, ltop = 0;      /* dlg: 0 menu, 1 nombre al guardar, 2 sobreescribir?, 3 lista al cargar */
+    int dlg = 0, ld = 0, sv_len = 0, nlist = 0, lsel = 0, ltop = 0;   /* dlg: 0 menu, 1 lista y nombre (ld: 1 = cargar), 2 sobreescribir? */
+    const char *emsg = "";
     char sv_name[10];
     char b[64];
     u8 *scr = plat_screen();
@@ -957,28 +958,29 @@ int sim_menu(char *acf, char *scn, int *hour)
     if (apt >= mw.napt) apt = 0;
     while (!done) {
         read_keys(1);
-        if (dlg) {                                                  /* pantallas de guardar y cargar */
+        if (dlg) {                                                  /* pantallas de guardar (ld = 0) y cargar (ld = 1): lista arriba, nombre abajo */
             if (hit(KEY_ESC)) { dlg = 0; msg = ""; }
             else if (dlg == 1) {
                 for (k = 0; k < 36; k++)
-                    if (hit(ch_key[k]) && sv_len < 8) { sv_name[sv_len++] = ch_chr[k]; sv_name[sv_len] = 0; dirty = 1; }
-                if (hit(KEY_LEFT) && sv_len > 0) { sv_name[--sv_len] = 0; dirty = 1; }
+                    if (hit(ch_key[k]) && sv_len < 8) { sv_name[sv_len++] = ch_chr[k]; sv_name[sv_len] = 0; dirty = 1; emsg = ""; }
+                if (hit(KEY_LEFT) && sv_len > 0) { sv_name[--sv_len] = 0; dirty = 1; emsg = ""; }
+                if (hit(KEY_UP) && lsel > 0) { lsel--; dirty = 1; u_cpy(sv_name, sv_list[lsel], 10); sv_len = (int)strlen(sv_name); emsg = ""; }
+                if (hit(KEY_DOWN) && lsel < nlist - 1) { lsel++; dirty = 1; u_cpy(sv_name, sv_list[lsel], 10); sv_len = (int)strlen(sv_name); emsg = ""; }
                 if (hit(KEY_ENTER) && sv_len > 0) {
-                    if (snap_exists(sv_name)) dlg = 2;
-                    else { msg = snap_save(sv_name) ? S_SAVED : S_SAVE_FAIL; dlg = 0; }
                     dirty = 1;
+                    if (ld) {
+                        if (!snap_exists(sv_name)) emsg = S_NO_SUCH;
+                        else {
+                            dlg = 0;
+                            if (snap_load(sv_name)) { sel = sim_snap.sel; esc = sim_snap.esc; mode = START_CONT; done = 1; menu_open(scns[esc]); }
+                            else msg = S_LOAD_FAIL;
+                        }
+                    } else if (snap_exists(sv_name)) dlg = 2;
+                    else { msg = snap_save(sv_name) ? S_SAVED : S_SAVE_FAIL; dlg = 0; }
                 }
             } else if (dlg == 2) {
                 if (hit(KEY_S) || hit(KEY_Y)) { msg = snap_save(sv_name) ? S_SAVED : S_SAVE_FAIL; dlg = 0; }
                 else if (hit(KEY_N)) { dlg = 1; dirty = 1; }
-            } else {
-                if (hit(KEY_UP) && lsel > 0) { lsel--; dirty = 1; }
-                if (hit(KEY_DOWN) && lsel < nlist - 1) { lsel++; dirty = 1; }
-                if (hit(KEY_ENTER)) {
-                    dlg = 0;
-                    if (snap_load(sv_list[lsel])) { sel = sim_snap.sel; esc = sim_snap.esc; mode = START_CONT; done = 1; menu_open(scns[esc]); }
-                    else msg = S_LOAD_FAIL;
-                }
             }
             if (lsel < ltop) ltop = lsel;
             if (lsel >= ltop + SV_ROWS) ltop = lsel - SV_ROWS + 1;
@@ -986,22 +988,19 @@ int sim_menu(char *acf, char *scn, int *hour)
             if (dirty) {
                 dirty = 0;
                 gfx_clear(&s, fill_tab[F_BLACK]);
-                if (dlg == 3) {
-                    gfx_text(&s, 60, 20, S_LOAD_TITLE, C_WHITE);
-                    gfx_text(&s, 60, 30, S_MENU_RULE, C_RED);
-                    for (i = ltop; i < nlist && i < ltop + SV_ROWS; i++) gfx_text(&s, 80, 56 + (i - ltop) * 12, sv_list[i], i == lsel ? C_GREEN : C_WHITE);
-                    gfx_text(&s, 60, 228, S_LOAD_HELP, C_GREEN);
+                gfx_text(&s, 60, 20, ld ? S_LOAD_TITLE : S_SAVE_TITLE, C_WHITE);
+                gfx_text(&s, 60, 30, S_MENU_RULE, C_RED);
+                if (nlist == 0) gfx_text(&s, 80, 46, S_NO_SAVES, C_RED);
+                for (i = ltop; i < nlist && i < ltop + SV_ROWS; i++)
+                    gfx_text(&s, 80, 46 + (i - ltop) * 11, sv_list[i], (dlg == 1 && i == lsel && sv_len > 0 && !strcmp(sv_list[i], sv_name)) ? C_GREEN : C_WHITE);
+                u_cpy(b, S_SAVE_NAME, 40); u_cat(b, sv_name, 40); if (dlg == 1) u_cat(b, "_", 40);
+                gfx_text(&s, 60, 190, b, C_GREEN);
+                if (dlg == 2) {
+                    gfx_text(&s, 60, 206, S_OVERWRITE, C_RED);
+                    gfx_text(&s, 60, 218, S_YESNO, C_WHITE);
                 } else {
-                    gfx_text(&s, 60, 20, S_SAVE_TITLE, C_WHITE);
-                    gfx_text(&s, 60, 30, S_MENU_RULE, C_RED);
-                    u_cpy(b, S_SAVE_NAME, 40); u_cat(b, sv_name, 40); if (dlg == 1) u_cat(b, "_", 40);
-                    gfx_text(&s, 60, 60, b, C_GREEN);
-                    if (dlg == 2) {
-                        gfx_text(&s, 60, 90, S_OVERWRITE, C_RED);
-                        gfx_text(&s, 60, 110, S_YESNO, C_WHITE);
-                    } else {
-                        gfx_text(&s, 60, 228, S_SAVE_HELP, C_GREEN);
-                    }
+                    if (emsg[0]) gfx_text(&s, 60, 206, emsg, C_RED);
+                    gfx_text(&s, 60, 232, ld ? S_LOAD_HELP : S_SAVE_HELP, C_GREEN);
                 }
             }
             plat_frame();
@@ -1030,13 +1029,12 @@ int sim_menu(char *acf, char *scn, int *hour)
         }
         if (hit(KEY_G)) {
             if (!sim_snap_ok) msg = S_NO_FLIGHT;
-            else { dlg = 1; sv_len = 0; sv_name[0] = 0; }
+            else { nlist = plat_list("sav", sv_list, SV_MAX); dlg = 1; ld = 0; lsel = ltop = 0; sv_len = 0; sv_name[0] = 0; emsg = ""; }
             dirty = 1;
         }
         if (hit(KEY_L)) {
             nlist = plat_list("sav", sv_list, SV_MAX);
-            if (nlist > 0) { dlg = 3; lsel = ltop = 0; }
-            else msg = S_NO_SAVES;
+            dlg = 1; ld = 1; lsel = ltop = 0; sv_len = 0; sv_name[0] = 0; emsg = "";
             dirty = 1;
         }
         if (hit(KEY_ENTER)) done = 1;
