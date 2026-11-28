@@ -35,6 +35,9 @@ def leer(ruta):
     return v, f, l
 
 
+TIT = ("TOP", "SIDE", "FRONT") if os.environ.get("QFS_LANG") == "en" else ("PLANTA", "PERFIL", "FRENTE")   # QFS_LANG=en: rotulos en ingles
+
+
 def medidas(v):
     xs, ys, zs = zip(*v)
     return max(xs) - min(xs), max(zs) - min(zs), max(ys)
@@ -64,11 +67,11 @@ def dibujar(ruta, salida):
     gs = fig.add_gridspec(2, 2, width_ratios=[1, 1.35], height_ratios=[1.5, 1], hspace=0.08, wspace=0.04)
     # planta (morro a la derecha): horizontal = z, vertical = x
     a1 = fig.add_subplot(gs[:, 0])
-    vista(a1, v, f, l, (2, 0, 1), 1, "PLANTA")
+    vista(a1, v, f, l, (2, 0, 1), 1, TIT[0])
     a2 = fig.add_subplot(gs[0, 1])
-    vista(a2, v, f, l, (2, 1, 1), 0, "PERFIL")
+    vista(a2, v, f, l, (2, 1, 1), 0, TIT[1])
     a3 = fig.add_subplot(gs[1, 1])
-    vista(a3, v, f, l, (0, 1, 1), 2, "FRENTE")
+    vista(a3, v, f, l, (0, 1, 1), 2, TIT[2])
     fig.savefig(salida, bbox_inches="tight", pad_inches=0.04, facecolor="white")
     plt.close(fig)
     return envergadura, longitud, altura

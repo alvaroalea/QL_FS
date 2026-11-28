@@ -100,3 +100,20 @@ clean:
 	rm -rf build/hosttest build/iberiatest build/shots build/disco
 
 .PHONY: all datos prueba capturas cartas cartas-svg cartas-pdf libro pdf disco clean
+
+# ---- English edition (doc/en): same charts and manual, texts in English
+#   make -f Makefile.pc libro-en    manual A5 in English: doc/en/AFS_Manual_A5_en.pdf (tools/libro_en.sh; the text is doc/en/libro/manual_en.md)
+#   make -f Makefile.pc cartas-en   charts with their texts in English (QFS_LANG=en, tools/cartas_en.py): SVG in doc/en/svg and PDF in doc/en
+#   make -f Makefile.pc pdf-en      everything in order -> doc/en/AFS_en.pdf
+#   The game's own menu is English with `make QLANG=en` (src/qfs_en.h; make lang-check compares it with src/qfs_es.h).
+libro-en: doc/en/libro/manual_en.md tools/libro_en.sh
+	./tools/libro_en.sh
+
+cartas-en: build/iberia.scn tools/cartas.py tools/cartas_a5.py tools/cartas_en.py
+	QFS_LANG=en $(PY) tools/cartas.py $(ESCALA) build/cartas_en
+	$(PY) tools/cartas_svg.py build/cartas_en doc/en/svg
+	$(PY) tools/cartas_pdf.py doc/en en
+
+pdf-en:
+	$(MAKE) -f Makefile.pc libro-en
+	$(MAKE) -f Makefile.pc cartas-en

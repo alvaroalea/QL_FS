@@ -10,9 +10,11 @@ Cada SVG se pasa a PDF con Inkscape (en build/cartas_pdf, solo si el SVG es mas 
 import json, os, subprocess, sys
 
 doc = sys.argv[1] if len(sys.argv) > 1 else "doc"
+LANG = sys.argv[2] if len(sys.argv) > 2 else ""      # "en": doc/en (svg, svg-manual) -> AFS_*_en.pdf y AFS_en.pdf
+SFX = "_" + LANG if LANG else ""
 svg, man = os.path.join(doc, "svg"), os.path.join(doc, "svg-manual")
 os.makedirs(man, exist_ok=True)
-tmp = "build/cartas_pdf"
+tmp = "build/cartas_pdf" + SFX
 os.makedirs(tmp, exist_ok=True)
 pages = json.load(open(os.path.join(svg, "paginas.json")))
 
@@ -39,7 +41,7 @@ if todo:
     missing = [o for s, o in todo if not os.path.exists(o)]
     if missing:
         sys.exit("Inkscape no genero: " + ", ".join(missing))
-OUT = {"A3": "AFS_Carta_Ruta_A3.pdf", "A5": "AFS_Aeropuertos_A5.pdf", "A4": "AFS_Cartas_Visuales_A4.pdf"}
+OUT = {"A3": "AFS_Carta_Ruta_A3%s.pdf" % SFX, "A5": "AFS_Aeropuertos_A5%s.pdf" % SFX, "A4": "AFS_Cartas_Visuales_A4%s.pdf" % SFX}
 for group, fn in OUT.items():
     files = [r[2] for r in res if r[0] == group]
     if len(files) == 1:
@@ -50,8 +52,8 @@ for group, fn in OUT.items():
 used = [r[1] for r in res if r[3] == "svg-manual"]
 if used:
     print("retocadas a mano (doc/svg-manual):", ", ".join(used))
-manual = os.path.join(doc, "AFS_Manual_A5.pdf")
+manual = os.path.join(doc, "AFS_Manual_A5%s.pdf" % SFX)
 parts = [manual] if os.path.exists(manual) else []
 parts += [os.path.join(doc, OUT[g]) for g in ("A4", "A5", "A3")]
-subprocess.run(["pdfunite"] + parts + [os.path.join(doc, "AFS.pdf")], check=True)
-print("doc/AFS.pdf: " + " + ".join(os.path.basename(p) for p in parts))
+subprocess.run(["pdfunite"] + parts + [os.path.join(doc, "AFS%s.pdf" % SFX)], check=True)
+print("AFS%s.pdf: " % SFX + " + ".join(os.path.basename(p) for p in parts))

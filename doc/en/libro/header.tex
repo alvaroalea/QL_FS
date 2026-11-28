@@ -1,0 +1,33 @@
+% header.tex - preamble of the AFS book, English version (pandoc --include-in-header)
+\usepackage{float}
+\floatplacement{figure}{H}
+\usepackage{emptypage}                 % paginas en blanco sin cabecera ni numero
+\usepackage{fvextra}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+\usepackage{etoolbox}
+\AtBeginEnvironment{longtable}{\small}
+\renewcommand{\arraystretch}{1.1}
+\emergencystretch=3em
+\setlength{\parskip}{3pt plus 1pt}
+\raggedbottom
+\usepackage{xcolor}
+\definecolor{qfsrojo}{HTML}{C8372D}
+\definecolor{qfsaviso}{HTML}{FFF4D6}
+\usepackage[most]{tcolorbox}
+\newtcolorbox{aviso}{colback=qfsaviso,colframe=qfsrojo,boxrule=0.6pt,arc=1.5pt,left=5pt,right=5pt,top=3pt,bottom=3pt,fontupper=\small}
+\usepackage{titlesec}
+\titleformat{\chapter}[display]{\normalfont\bfseries}{\Large\chaptertitlename\ \thechapter}{6pt}{\huge}
+\titlespacing*{\chapter}{0pt}{-10pt}{22pt}
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE]{\small\nouppercase{\leftmark}}
+\fancyhead[RO]{\small\nouppercase{\rightmark}}
+\fancyfoot[LE,RO]{\small\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\fancypagestyle{plain}{\fancyhf{}\fancyfoot[LE,RO]{\small\thepage}\renewcommand{\headrulewidth}{0pt}}
+
+
+\usepackage{pdfpages}               % hoja A4 apaisada del teclado (tools/teclado_ql.py)

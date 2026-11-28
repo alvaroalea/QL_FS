@@ -11,6 +11,31 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
 from reportlab.lib.colors import HexColor, black, white
 
+import os
+LANG = os.environ.get("QFS_LANG", "es")
+EN = {'Salir al': 'Back to', 'menú': 'menu', 'Salir': 'Quit', 'Avión 1': 'Aircraft 1', 'planeador': 'glider', 'Avión 2': 'Aircraft 2', 'monomotor': 'single', 'Avión 3': 'Aircraft 3', 'bimotor': 'twin', 'Avión 4': 'Aircraft 4', 'reactor': 'jet', 'Mirar a la': 'Look', 'izquierda': 'left', 'la izquierda': 'left', 'Mirar al': 'Look', 'frente': 'ahead', 'derecha': 'right', 'la derecha': 'right', 'Mirar': 'Look', 'atrás': 'back', 'aleja': 'out', 'acerca': 'in', 'Indicador': 'Frames per', 'de cuadros': 'second', 'por segundo': 'indicator', 'Pausa': 'Pause', 'Mapa': 'Map', 'sí / no': 'on / off', 'Arranque': 'Starter', '(mantener)': '(hold)', 'Cambia de': 'Change', 'escenario': 'scenery', 'Reinicia en': 'Restart at', 'el siguiente': 'the next', 'aeropuerto': 'airport', 'anterior': 'previous', 'Hora': 'Time', 'Hora de': 'Departure', 'salida': 'time', 'Timón': 'Auto', 'automático': 'rudder', 'OBS del': 'VOR OBS:', 'VOR: girar': 'turn', 'al revés': 'reverse', 'Paso de': 'Propeller', 'la hélice:': 'pitch:', 'menos': 'less', 'más': 'more', 'Compensador:': 'Trim:', 'morro abajo': 'nose down', 'morro arriba': 'nose up', 'frecuencia': 'frequency', 'arriba': 'up', 'abajo': 'down', 'Aeropuerto': 'Next', 'siguiente': 'airport', 'Modo de': 'Start', 'Pista o': 'Runway or', 'punto de': 'glide path', 'la senda': 'point', 'Flaps:': 'Flaps:', 'Tren de': 'Landing', 'aterrizaje': 'gear', 'sube / baja': 'up / down', 'Guardar': 'Save', 'partida': 'game', 'Llamar a': 'Call', 'la torre': 'the tower', 'Cargar': 'Load', 'Reinicia tras': 'Restart', 'un choque': 'after a crash', 'Empezar': 'Start', 'el vuelo': 'the flight', 'Invierte la': 'Reverses the', 'función: la': 'function: the', 'que va entre': 'one in', 'paréntesis': 'parentheses', 'función': 'function', 'Timón a la': 'Rudder', 'Cambia de ': 'Change', 'vista': 'view', 'Mezcla:': 'Mixture:', 'empobrece': 'lean', 'enriquece': 'enrich', 'Frenos de': 'Wheel', 'las ruedas': 'brakes', 'Alabeo a': 'Roll', 'Centra alerones,': 'Centres ailerons,', 'timón y profundidad': 'rudder, elevator', 'Morro': 'Nose', 'Gas al': 'Throttle', 'ralentí': 'to idle', 'Menos': 'Less', 'gas': 'throttle', 'Más': 'More', 'Gas a': 'Full', 'fondo': 'throttle', 'MAYÚS': 'SHIFT', 'ESPACIO': 'SPACE', 'Mandos de vuelo': 'Flight controls', 'Motor y hélice': 'Engine and propeller', 'Flaps, tren y frenos': 'Flaps, gear and brakes', 'Vistas': 'Views', 'Radios y navegación': 'Radios and navigation', 'Simulación': 'Simulation', 'Sin función en AFS': 'No function in AFS', 'AFS - Teclado del Sinclair QL': 'AFS - Sinclair QL keyboard', 'El teclado del QL en AFS': 'The QL keyboard in AFS', 'Texto negro: lo que hace la tecla en vuelo.': 'Black text: what the key does in flight.', '(Rojo entre paréntesis: con MAYÚS pulsada.)': '(Red in parentheses: with SHIFT held down.)', 'Azul cursiva: en el menú inicial.': 'Blue italics: in the start menu.', 'Las teclas de F1 a F5 están en el lateral izquierdo del QL; los cursores, a ambos lados de la barra espaciadora. El teclado se lee a la vez: puedes pulsar varias.': 'Keys F1 to F5 are on the left side of the QL; the cursors, on both sides of the space bar. The keyboard is read all at once: you can press several.', 'En el menú inicial T cambia la hora y, con MAYÚS, A, S y D recorren las opciones hacia atrás.': 'In the start menu T changes the time and, with SHIFT, A, S and D step backwards through the options.'}
+
+
+def T(s):
+    if LANG != "en":
+        return s
+    if s in EN:
+        return EN[s]
+    if len(s) > 2 and s[0] == "(" and s[-1] == ")":          # lo de MAYUS va entre parentesis
+        return "(" + T(s[1:-1]) + ")"
+    return s
+
+
+class Canvas(canvas.Canvas):          # QFS_LANG=en: cada rotulo pasa por T() (diccionario de arriba)
+    def drawString(self, x, y, s, *a, **k):
+        canvas.Canvas.drawString(self, x, y, T(s), *a, **k)
+
+    def stringWidth(self, s, *a, **k):
+        return canvas.Canvas.stringWidth(self, T(s), *a, **k)
+
+    def setTitle(self, t):
+        canvas.Canvas.setTitle(self, T(t))
+
 OUT = sys.argv[1] if len(sys.argv) > 1 else "doc/libro/img/teclado_ql.pdf"
 
 FAM = {   # familia -> (color de fondo, nombre en la leyenda)
@@ -130,7 +155,7 @@ def draw_key(c, x, y, w, h, k):
 
 def main():
     W, H = landscape(A4)
-    c = canvas.Canvas(OUT, pagesize=(W, H))
+    c = Canvas(OUT, pagesize=(W, H))
     c.setTitle("AFS - Teclado del Sinclair QL")
     c.setAuthor("AFS")
     c.setFillColor(black)

@@ -1,0 +1,32 @@
+---
+# Metadatos del instruction book de AFS (pandoc + XeLaTeX). A5 page size.
+lang: en
+title-meta: "Alea's Flight Simulator 1.0 for Sinclair QL - Instruction manual"
+author-meta: "Alvaro Alea"
+papersize: a5
+fontsize: 10pt
+documentclass: book
+classoption:
+  - openright
+  - twoside
+top-level-division: chapter
+toc: true
+toc-depth: 2
+number-sections: true
+secnumdepth: 3
+geometry:
+  - inner=1.9cm
+  - outer=1.4cm
+  - top=1.6cm
+  - bottom=1.7cm
+mainfont: DejaVu Serif
+sansfont: DejaVu Sans
+monofont: DejaVu Sans Mono
+mainfontoptions: [Scale=0.93]
+monofontoptions: [Scale=0.85]
+colorlinks: true
+linkcolor: black
+urlcolor: blue
+toccolor: black
+highlight-style: tango
+...

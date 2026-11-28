@@ -76,6 +76,8 @@ make                         # full QL build -> build/qfs.img (floppy) and build
 make -f Makefile.pc          # PC: tables, scenery, aircraft, tests and screenshots
 make -f Makefile.pc libro    # A5 manual in doc/AFS_Manual_A5.pdf
 make -f Makefile.pc cartas   # charts in doc/AFS_*.pdf
+make QLANG=en                # the QL build with the main menu in English (src/qfs_en.h); without QLANG, Spanish
+make -f Makefile.pc pdf-en   # English edition of the manual and charts in doc/en/AFS_en.pdf
 ```
 
 On the QL, boot the image (`LRUN flp1_boot` or `LRUN win1_boot`). In sQLux it is enough to add a line
@@ -86,7 +88,8 @@ On the QL, boot the image (`LRUN flp1_boot` or `LRUN win1_boot`). In sQLux it is
 - [`doc/info.md`](doc/info.md): project status, code structure, `make` targets and what is still to be verified on a real QL.
 - [`doc/libro/manual.md`](doc/libro/manual.md): the manual (menus, aircraft, controls, step-by-step flight, ILS/VOR/ADF, air traffic).
 - [`doc/optimizacion.md`](doc/optimizacion.md): performance measurements and optimizations.
-- [`doc/AFS.pdf`](doc/AFS.pdf): manual and charts in a single PDF.
+- [`doc/AFS.pdf`](doc/AFS.pdf): manual and charts in a single PDF (Spanish).
+- [`doc/en/`](doc/en): English edition: the manual (`libro/manual_en.md`), charts as SVG (`svg/`) and [`AFS_en.pdf`](doc/en/AFS_en.pdf).
 
 ## License
 
