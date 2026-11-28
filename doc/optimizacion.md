@@ -1113,3 +1113,20 @@ en esa situación el aviso ya lo dice. La alternativa sería hacer el código in
   y, con el hueco bajo lleno, las pone arriba. Si faltara memoria arriba, el programa se queda sin ella antes: el tapón se puede achicar
   quitando tallas de la lista (`plat_himem_init`).
 * La pila alta es de 24 KB (antes 32 KB bajos): si hubiera desbordamiento, subir el 24576 de `plat_himem_init` y `plat_run`.
+
+## Ventana 3D más pequeña: medido y descartado (28 noviembre 2026)
+
+Pregunta: ¿cuánto sube el FPS de la vista si la ventana pasa de 480x96 a 240 o 384 de ancho y 64 o 48 de alto? Se hizo una prueba con el centro, las mitades y las focales de la ventana como variables (campo horizontal fijo de 70°, así que `fx` baja con el ancho; pixel 1:1,5) y se midió con `PROF_SCHED_RUN=1500`, SPEED 1,0, `IPC_ROM = Hermes2_20_rom`, escenas 0, 1, 3 y 4. Vistas completas por segundo:
+
+| Ventana | Esc. 0 | Esc. 1 | Esc. 3 | Esc. 4 | Media | Ganancia |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 480x96 | 0,73 | 0,97 | 0,90 | 1,03 | 0,91 | — |
+| 480x64 | 0,77 | 1,13 | 0,93 | 1,07 | 0,98 | +7 % |
+| 384x96 | 0,77 | 0,97 | 0,90 | 1,07 | 0,93 | +2 % |
+| 384x64 | 0,80 | 1,10 | 0,93 | 1,13 | 0,99 | +9 % |
+| 240x96 | 0,83 | 1,03 | 0,93 | 1,20 | 1,00 | +10 % |
+| 240x64 | 0,87 | 1,10 | 0,90 | 1,20 | 1,02 | +12 % |
+| 240x48 | 0,90 | 1,17 | 0,96 | 1,27 | 1,08 | +18 % |
+| 192x48 | 0,90 | 1,17 | 0,97 | 1,27 | 1,08 | +19 % |
+
+La mejor escena gana un 23 % (cabecera, 192x48) y la peor un 8 % (noche). Muy por debajo del 50 %: el coste lo ponen los vértices (transformar y proyectar, luces), que no dependen del tamaño de la ventana; solo bajan el relleno, el cielo y el volcado. Además la versión con variables cuesta un ~3 % en 480x96 (los descartes de `xform_pre` pasan de desplazamientos a `xp_mul`). No se aplicó: ni menú de opciones ni cambio de tamaño. Para ganar más habría que reducir objetos (alcance, LOD), no píxeles.
