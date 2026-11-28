@@ -327,7 +327,7 @@ void panel_init(u8 *scr, const AircraftDef *ac, const char *acf, u8 *work)
  * se pintaria encima de una aguja a medias y al deshacerla quedarian puntos sueltos. */
 #define NONE (-30000)
 static int s_kt, s_alt, s_rpm[2], s_rpmt, s_vsi, s_bank, s_ball, s_hdg, s_ai_b, s_ai_h, s_cdi_x, s_cdi_y, s_cdi_col;
-static int s_cdi_loc, s_cdi_flag, s_cdi_obs, s_bar[7], s_gear, s_lever, s_marker, s_stopped;
+static int s_cdi_loc, s_cdi_flag, s_cdi_obs, s_bar[7], s_gear, s_lever, s_marker, s_stopped, s_flt;
 static int s_brk;                      /* frenos de las ruedas pintados (BRK) */
 static int s_up_on;                    /* tren recogido y bloqueado: luces rojas hasta pasar unos segundos */
 static u32 s_up_t;
@@ -370,7 +370,7 @@ static void panel_reset_state(void)
     s_alt_p[0][0] = s_alt_p[1][0] = -1;
     s_kt = s_alt = s_rpmt = s_vsi = s_bank = s_ball = s_hdg = s_ai_b = s_ai_h = s_cdi_x = s_cdi_y = NONE;
     s_rpm[0] = s_rpm[1] = NONE;
-    s_cdi_loc = s_cdi_flag = s_cdi_obs = s_cdi_col = s_gear = s_lever = s_marker = s_stopped = NONE;
+    s_cdi_loc = s_cdi_flag = s_cdi_obs = s_cdi_col = s_gear = s_lever = s_marker = s_stopped = s_flt = NONE;
     for (i = 0; i < 7; i++) s_bar[i] = NONE;
     s_up_on = 0; s_brk = NONE;
     for (i = 0; i < 6; i++) s_rad[i][0] = 1;       /* distinto de cualquier cadena real: se pinta la primera vez */
@@ -1015,7 +1015,15 @@ static void draw_engine(const Flight *f, const Radios *r)
     lever(0, f->thr, F_WHITE);
     lever(1, f->prop, F_GREEN);
     lever(2, f->mix, F_RED);
-    if (slot_x[3] >= 0) bar(3, slot_x[3], 6, f->flap_pos, F_ORANGE, 1);
+    if (slot_x[3] >= 0) {
+        int t = (int)((s32)f->flaps * 44 / (AC->n_flaps - 1));             /* posicion pedida: marca blanca de 2 px a la derecha de la barra, salta de golpe */
+        bar(3, slot_x[3], 6, f->flap_pos, F_ORANGE, 1);
+        if (t != s_flt) {
+            if (s_flt != NONE) gfx_rect(&S, slot_x[3] + 7, 167 + s_flt, slot_x[3] + 8, 168 + s_flt, fill_tab[F_BLACK]);
+            gfx_rect(&S, slot_x[3] + 7, 167 + t, slot_x[3] + 8, 168 + t, fill_tab[F_WHITE]);
+            s_flt = t;
+        }
+    }
     if (AC->retract) draw_gear(f);
     v0 = AC->eng_type == ENG_PISTON ? fxmul(f->e[0].map, FXI(10)) >> 16 : f->e[0].egt >> 16;
     v1 = AC->eng_type == ENG_PISTON ? f->e[0].egt >> 16 : f->e[0].ff >> 16;
