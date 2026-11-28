@@ -1397,12 +1397,7 @@ lr_dl:  move.l  d2,d3
         sub.l   0(a0,d3.l),d0           ; p1 - p0
         moveq   #12,d1
         asl.l   d1,d0
-        movem.l d2-d3/a0-a1,-(a7)
-        move.l  d7,-(a7)
-        move.l  d0,-(a7)
-        jsr     _sdiv32
-        addq.l  #8,a7
-        movem.l (a7)+,d2-d3/a0-a1
+        bsr     lr_dv                   ; d0 = d0 / n (truncado hacia cero), como sdiv32 pero sin llamada ni salvar registros
         move.l  88(a7),d1               ; shift
         asl.l   d1,d0                   ; paso de 2^shift luces (si desborda, es la ultima suma, que no se usa)
         move.l  d0,12(a7,d3.l)
@@ -1418,14 +1413,16 @@ lr_nod: move.l  84(a7),d7               ; cuantas se pintan: (cnt + 2^shift - 1)
         lsr.l   d1,d7
         subq.l  #1,d7                   ; para dbra
         bmi     lr_end
+        move.l  (a7),a0                 ; X e Y (12 bits de fraccion) se llevan en a0 y a1; Z en la pila
+        move.l  4(a7),a1
 lr_lp:  moveq   #12,d3
         move.l  8(a7),d2
         asr.l   d3,d2                   ; z
         cmp.l   d6,d2
         blt     lr_nx
-        move.l  (a7),d0
+        move.l  a0,d0
         asr.l   d3,d0                   ; x
-        move.l  4(a7),d1
+        move.l  a1,d1
         asr.l   d3,d1                   ; y
         bsr     _pj_xy_r
         bsr     _dl_plot
@@ -1433,16 +1430,37 @@ lr_lp:  moveq   #12,d3
         beq     lr_nx
         addq.l  #1,d0
         bsr     _dl_plot
-lr_nx:  move.l  12(a7),d0
-        add.l   d0,(a7)
-        move.l  16(a7),d0
-        add.l   d0,4(a7)
+lr_nx:  adda.l  12(a7),a0
+        adda.l  16(a7),a1
         move.l  20(a7),d0
         add.l   d0,8(a7)
         dbra    d7,lr_lp
 lr_end: lea     24(a7),a7
         movem.l (a7)+,d2-d7/a2-a6
         rts
+
+; d0 = a (|a| < 2^29), d7 = n (1..65535)  ->  d0 = a / n truncado hacia cero. Destruye d1, a3, a4. (draw_lrow: sdiv32 sin su sobrecarga)
+lr_dv:  suba.l  a4,a4
+        tst.l   d0
+        bpl     lr_d1
+        neg.l   d0
+        addq.l  #1,a4                   ; signo negativo
+lr_d1:  move.l  d0,d1
+        clr.w   d0
+        swap    d0                      ; palabra alta de |a|
+        divu    d7,d0                   ; r1:q1
+        movea.w d0,a3                   ; q1 (< 2^15)
+        clr.w   d0
+        move.w  d1,d0                   ; r1:palabra baja
+        divu    d7,d0                   ; r2:q2
+        and.l   #$FFFF,d0
+        move.l  a3,d1
+        swap    d1
+        or.l    d1,d0                   ; q1:q2
+        move.l  a4,d1
+        beq     lr_d2
+        neg.l   d0
+lr_d2:  rts
 
 ; ---------------------------------------------------------------- poly_fast
 ; int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy, s32 *out, int cull)

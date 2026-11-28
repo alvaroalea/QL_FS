@@ -1169,3 +1169,20 @@ No. `ql3d` (carpeta en minúsculas) es un motor de polígonos convexos para nave
 y con orden del pintor solo entre objetos. QFS necesita lo contrario: miles de objetos por teselas, suelo que cruza el plano cercano (la pista bajo el avión), cóncavos, modo 4 de 512 px y cielo/horizonte. Y en rendimiento no aporta nada: su `xform` cuesta 1,45 k ciclos por vértice **con
 proyección** (medido sin contención) frente a ~1,1 k de QFS (transformar ~550 + proyectar ~600). Sus trucos ya aplicados aquí (descarte por esfera envolvente, relleno de convexos sin tablas de aristas, caras de suelo sin normales) o medidos sin ganancia (recíprocos para las pendientes: −0,2 a −0,4 %,
 matriz en la pila con `(a4)+`: −3,5 % de `xform`, ≈ 0,1 % de la vista).
+
+### Filas de luces de noche (`draw_lrow`), segunda parte del 28 noviembre 2026
+
+Medido igual que arriba (×1, física parada, media de los volcados 1 y 2); resultado idéntico bit a bit en las cuatro escenas del QL.
+
+| Cambio | Esc. 0 | Esc. 1 | Esc. 3 (noche) | Esc. 4 | Decisión |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Partida | 10,24 | 6,07 | 7,33 | 6,89 | |
+| Con el suelo plano (`xform_obj3f`) | 10,10 | 6,05 | 7,17 | 6,87 | aplicado |
+| + las tres divisiones de 32 bits por fila en línea (`lr_dv`, sin llamar a `sdiv32` ni salvar registros) | 10,10 | 6,05 | 6,81 (−5,1 % sobre el anterior) | 6,87 | **aplicado** |
+| + X e Y de la fila en `a0`/`a1` en vez de en la pila (`adda.l` en lugar de leer, sumar y escribir en memoria) | 10,10 | 6,05 | **6,68** (−1,9 % más; −8,9 % sobre la partida) | 6,87 | **aplicado** |
+| Proyectar solo las luces pares y poner la impar en el punto medio de sus vecinas si caen a ≤ 8 píxeles | — | — | 7,10 | — | descartado |
+
+La interpolación en pantalla salió **peor** que no hacer nada (7,10 s frente a 6,81 s) y cambia 12 bytes de la imagen nocturna: casi ninguna pareja de luces cae a ≤ 8 píxeles (a 1-5 km la separación de dos luces es de unos 8 píxeles),
+así que se seguía proyectando casi todo (`pj_xy` solo bajó un 7 %) y el bucle con subrutinas y más estado en memoria pesaba más. Con un umbral mayor el error de perspectiva se vería.
+
+Queda en la noche: `draw_lrow` 19,7 % (tres desplazamientos de 12 bits, de 30 ciclos cada uno, por luz), `pj_xy` + `pj_div` 14 %, `dl_plot` 5,7 %.
