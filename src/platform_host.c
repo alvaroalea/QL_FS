@@ -49,3 +49,4 @@ int host_dump(const char *fname)
 }
 
 void *plat_alloc_hi(long n) { return malloc((size_t)n); }
+long plat_free_kb(void) { return 1024L; }

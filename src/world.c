@@ -116,10 +116,14 @@ int world_open(World *w, const char *fname)
         }
     }
     free(b);
-    for (i = 0; i < TILE_CACHE; i++) { w->cache[i].tx = -1; w->cache[i].mem = NULL; }
-    w->slot = (s8 *)malloc((size_t)w->ntx * w->nty + 1);
+    w->cache = (Tile *)malloc(sizeof(Tile) * TILE_CACHE);
+    if (!w->cache) return 0;
+    w->ncache = TILE_CACHE; w->nloaded = 0; w->mem_used = 0; w->mem_budget = 0;
+    memset(w->cache, 0, sizeof(Tile) * TILE_CACHE);
+    for (i = 0; i < TILE_CACHE; i++) w->cache[i].tx = -1;
+    w->slot = (s16 *)malloc(((size_t)w->ntx * w->nty + 1) * sizeof(s16));
     if (!w->slot) return 0;
-    memset(w->slot, 0xFF, (size_t)w->ntx * w->nty);
+    for (i = 0; i < w->ntx * w->nty; i++) w->slot[i] = -1;
     w->gen = 1; w->hl_gen = 0; w->hl = NULL; w->nhl = w->maxhl = 0; w->hit_near = 0;
     return 1;
 }
@@ -127,10 +131,11 @@ int world_open(World *w, const char *fname)
 void world_close(World *w)
 {
     int i;
-    for (i = 0; i < TILE_CACHE; i++) {
+    for (i = 0; i < w->ncache && w->cache; i++) {
         if (w->cache[i].mem) free(w->cache[i].mem);
         if (w->cache[i].obj) free(w->cache[i].obj);
     }
+    free(w->cache); w->cache = NULL; w->ncache = 0;
     for (i = 0; i < w->napt; i++) if (w->apt[i].atis_text) free(w->apt[i].atis_text);
     free(w->hl); w->hl = NULL;
     free(w->slot); w->slot = NULL;
@@ -186,42 +191,94 @@ static int tile_parse(Tile *t, u8 *blob, u32 size)
     return 1;
 }
 
+static void tile_unload(World *w, Tile *t)
+{
+    if (t->tx >= 0) {                              /* cargada: se descuenta lo que ocupaba (bloque + objetos, como se suma en tile_load) */
+        w->slot[t->ty * w->ntx + t->tx] = -1; w->nloaded--;
+        w->mem_used -= (u32)w->tdir_size[t->ty * w->ntx + t->tx] + 2UL + (u32)sizeof(Obj) * ((u32)t->nobj + 1UL);
+    }
+    if (t->mem) { free(t->mem); t->mem = NULL; }
+    if (t->obj) { free(t->obj); t->obj = NULL; }
+    t->tx = -1; t->nobj = 0;
+}
+
 static int tile_load(World *w, Tile *t, int tx, int ty)
 {
     int idx = ty * w->ntx + tx;
     u32 sz = w->tdir_size[idx];
     u8 *blob;
-    if (t->tx >= 0) w->slot[t->ty * w->ntx + t->tx] = -1;
-    if (t->mem) { free(t->mem); t->mem = NULL; }
-    if (t->obj) { free(t->obj); t->obj = NULL; }
-    t->tx = -1; t->nobj = 0;
+    tile_unload(w, t);
     blob = (u8 *)malloc((size_t)sz + 2);
     if (!blob) return 0;
     if (!rdblock(w->fp, w->tdir_off[idx], blob, sz)) { free(blob); return 0; }
     t->mem = blob;
     w->bytes_loaded += sz;
-    if (!tile_parse(t, blob, sz)) return 0;
+    if (!tile_parse(t, blob, sz)) { free(t->mem); t->mem = NULL; return 0; }
+    w->mem_used += sz + 2UL + (u32)sizeof(Obj) * ((u32)t->nobj + 1UL);
     t->tx = (s16)tx; t->ty = (s16)ty;
+    w->nloaded++;
     w->gen++;
     return 1;
 }
 
-static Tile *tile_get(World *w, int tx, int ty)
+/* la tesela cargada menos usada que no es de la vista en curso (stamp != clock), o -1 */
+static int tile_lru(World *w)
 {
     int i, best = -1;
     u32 old = 0xFFFFFFFFUL;
-    i = w->slot[ty * w->ntx + tx];
-    if (i >= 0) { w->cache[i].stamp = w->clock; return &w->cache[i]; }
-    for (i = 0; i < TILE_CACHE; i++) {
+    for (i = 0; i < w->ncache; i++) {
         Tile *t = &w->cache[i];
-        if (t->tx < 0) { best = i; break; }
-        if (t->stamp != w->clock && t->stamp < old) { old = t->stamp; best = i; }
+        if (t->tx >= 0 && t->stamp != w->clock && t->stamp < old) { old = t->stamp; best = i; }
     }
+    return best;
+}
+
+static Tile *tile_get(World *w, int tx, int ty)
+{
+    int i, best = -1, v;
+    u32 need;
+    i = w->slot[ty * w->ntx + tx];
+    if (i >= 0) { Tile *h = &w->cache[i]; h->stamp = w->clock; return h; }
+    /* hueco libre: siempre hasta TILE_CACHE teselas; mas solo si caben en el presupuesto de RAM (world_cache_autosize); si no, se desaloja la menos usada */
+    need = (u32)w->tdir_size[ty * w->ntx + tx] * 3UL + 64UL;
+    if (w->nloaded < TILE_CACHE || w->mem_used + need <= w->mem_budget)
+        for (i = 0; i < w->ncache; i++) if (w->cache[i].tx < 0) { best = i; break; }
+    if (best < 0) best = tile_lru(w);
+    if (best < 0)
+        for (i = 0; i < w->ncache; i++) if (w->cache[i].tx < 0) { best = i; break; }
     if (best < 0) return NULL;
-    if (!tile_load(w, &w->cache[best], tx, ty)) return NULL;
+    if (!tile_load(w, &w->cache[best], tx, ty)) {
+        v = tile_lru(w);                                   /* sin memoria: se suelta otra tesela y se reintenta una vez */
+        if (v < 0) return NULL;
+        tile_unload(w, &w->cache[v]);
+        if (!tile_load(w, &w->cache[v], tx, ty)) return NULL;
+        best = v;
+    }
     w->cache[best].stamp = w->clock;
-    w->slot[ty * w->ntx + tx] = (s8)best;
+    w->slot[ty * w->ntx + tx] = (s16)best;
     return &w->cache[best];
+}
+
+void world_cache_autosize(World *w, long free_kb)
+{
+    long spare = free_kb - CACHE_RESERVE_KB;
+    int n, i, nonempty = 0;
+    Tile *c;
+    w->mem_budget = 0;
+    if (spare <= 0 || !w->cache) return;                   /* 640 KB: todo como siempre */
+    for (i = 0; i < w->ntx * w->nty; i++) if (w->tdir_size[i]) nonempty++;
+    n = TILE_CACHE + (int)(spare * 3);                    /* entradas de ~20 bytes (60 bytes por KB repartido): tope holgado, el limite real es el presupuesto en bytes */
+    if (n > nonempty) n = nonempty;
+    if (n > 32000) n = 32000;
+    if (n > w->ncache) {
+        c = (Tile *)malloc(sizeof(Tile) * (size_t)n);
+        if (!c) return;
+        memcpy(c, w->cache, sizeof(Tile) * (size_t)w->ncache);
+        for (i = w->ncache; i < n; i++) { memset(&c[i], 0, sizeof(Tile)); c[i].tx = -1; }
+        free(w->cache);
+        w->cache = c; w->ncache = n;
+    }
+    w->mem_budget = (u32)spare * 1024UL;
 }
 
 int world_tiles_near(World *w, s32 x, s32 y, s32 radius, Tile **out, int max)
@@ -291,7 +348,7 @@ static int inside_face(const Obj *o, s32 px, s32 py)
 static void hit_list(World *w)
 {
     int i, k, n = 0;
-    for (i = 0; i < TILE_CACHE; i++) {
+    for (i = 0; i < w->ncache; i++) {
         Tile *t = &w->cache[i];
         if (t->tx < 0) continue;
         for (k = 0; k < t->nobj; k++) if (t->obj[k].flags & (OF_HIT | OF_WATER)) n++;
@@ -303,7 +360,7 @@ static void hit_list(World *w)
     }
     w->nhl = 0;
     if (!w->hl) return;
-    for (i = 0; i < TILE_CACHE; i++) {
+    for (i = 0; i < w->ncache; i++) {
         Tile *t = &w->cache[i];
         if (t->tx < 0) continue;
         for (k = 0; k < t->nobj; k++) if (t->obj[k].flags & (OF_HIT | OF_WATER)) w->hl[w->nhl++] = &t->obj[k];

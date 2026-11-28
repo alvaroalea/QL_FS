@@ -126,6 +126,19 @@ void *plat_alloc_hi(long n)
     return p;
 }
 
+/* RAM libre del monton: se piden bloques de mayor a menor (512 KB ... 4 KB) mientras malloc responda y se devuelven al final en orden inverso.
+ * Con bloques de 4 KB sueltos el monton quedaba troceado y los bloques grandes de las teselas ya no cabian (con 640 KB se recargaban sin parar). */
+long plat_free_kb(void)
+{
+    static void *blk[64];
+    long sz, kb = 0;
+    int n = 0;
+    for (sz = 524288L; sz >= 4096L; sz >>= 1)
+        while (n < 64 && (blk[n] = malloc((size_t)sz)) != NULL) { kb += sz >> 10; n++; }
+    while (n > 0) free(blk[--n]);
+    return kb;
+}
+
 /* "mono.acf" -> "flp1_mono_acf" */
 void plat_path(char *out, const char *name)
 {

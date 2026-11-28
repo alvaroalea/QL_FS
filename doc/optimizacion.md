@@ -1186,3 +1186,22 @@ La interpolación en pantalla salió **peor** que no hacer nada (7,10 s frente a
 así que se seguía proyectando casi todo (`pj_xy` solo bajó un 7 %) y el bucle con subrutinas y más estado en memoria pesaba más. Con un umbral mayor el error de perspectiva se vería.
 
 Queda en la noche: `draw_lrow` 19,7 % (tres desplazamientos de 12 bits, de 30 ciclos cada uno, por luz), `pj_xy` + `pj_div` 14 %, `dl_plot` 5,7 %.
+
+### Caché de teselas según la RAM libre (28 noviembre 2026)
+
+`world_cache_autosize(w, plat_free_kb())` se llama al final de `sim_init`. `TILE_CACHE` (49) pasa a ser el mínimo y el máximo de teselas de una vista; la caché tiene `ncache` entradas (`Tile *cache`, `slot` ahora `s16`) y un presupuesto en bytes
+`mem_budget = libre − CACHE_RESERVE_KB` (96 KB). `tile_get` solo carga más de `TILE_CACHE` teselas si caben en el presupuesto; si no, desaloja la menos usada (como siempre), y si `malloc` falla suelta otra tesela y reintenta una vez.
+`plat_free_kb` (QL) pide bloques de 512 KB a 4 KB, mayores primero, y los devuelve en orden inverso: tarda ~0,1 s al arrancar. **Con bloques sueltos de 4 KB el montón quedaba troceado**: con 640 KB los bloques grandes de las teselas ya no cabían y se
+recargaban del disco sin parar (parecía colgado).
+
+Medido en sQLux (escena 1, `-DPROF_MEM`, 29 teselas visibles):
+
+| RAM | Libre tras `sim_init` | Entradas | Presupuesto | Libre tras calentar |
+| --- | ---: | ---: | ---: | ---: |
+| 640 KB | 88 KB (< reserva) | 49 | 0 | 37 KB, 28 teselas: **idéntico a antes** |
+| 768 KB | ~240 KB | 385 | 112 KB | 127 KB |
+| 1.400 KB | ~870 KB | 2.245 | 732 KB | 555 KB |
+
+PC (`cachetest`: ida y vuelta de ~1.100 km con visión de 40 km): bytes leídos en la vuelta, 97 KB con 640 KB, 35 KB con 150 KB libres, **0-2 KB con ≥ 400 KB**. Con 1.400 KB caben las 2.733 teselas del escenario ibérico.
+Imagen y tiempos en régimen idénticos (6,03/6,06 s en la escena 1, 6,87 en la 4). Una primera versión con `Tile` de 24 bytes (campo `bytes`) costaba +0,9 % en todas las escenas (`tile_get` +0,053 s: el índice por 24 en lugar de 20): se quitó y la
+memoria ocupada se recalcula al descargar. Sobrecarga en un QL de 640 KB: la sonda de arranque (0,1 s) y 4 bytes más por entrada de `slot`; nada por vértice.

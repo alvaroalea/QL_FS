@@ -99,7 +99,8 @@ typedef struct {
     char *atis_text;
 } Airport;
 
-#define TILE_CACHE 49      /* 7x7 teselas: visibilidad de hasta ~48 km */
+#define TILE_CACHE 49      /* 7x7 teselas: visibilidad de hasta ~48 km; es el minimo de la cache y el maximo de teselas de una vista */
+#define CACHE_RESERVE_KB 96L   /* RAM libre que se deja sin usar al dimensionar la cache (QDOS, pila, avisos): con 640 KB no queda nada que repartir */
 
 typedef struct {
     FILE *fp;
@@ -115,9 +116,11 @@ typedef struct {
     s16  *tdir_elev;
     Nav  *nav;
     Airport *apt;
-    Tile  cache[TILE_CACHE];
+    Tile *cache;           /* ncache entradas (TILE_CACHE como minimo; mas si sobra RAM: world_cache_autosize) */
+    int   ncache, nloaded; /* entradas y teselas cargadas */
+    u32   mem_used, mem_budget;   /* bytes de teselas cargadas y tope para pasar de TILE_CACHE teselas (0 = no se pasa) */
     u32   clock;
-    s8   *slot;            /* tesela (ty*ntx+tx) -> indice en cache, -1 = no esta */
+    s16  *slot;            /* tesela (ty*ntx+tx) -> indice en cache, -1 = no esta */
     u32   gen, hl_gen;             /* sube cada vez que se carga una tesela (invalida la lista de colisiones) */
     Obj **hl; int nhl, maxhl;   /* objetos con OF_HIT/OF_WATER de las teselas en cache */
     s32   hit_near;        /* distancia horizontal minima (m) a un objeto de colision en la ultima comprobacion */
@@ -128,6 +131,8 @@ int   world_open(World *w, const char *fname);
 void  world_close(World *w);
 /* asegura en cache las teselas a menos de 'radius' m de (x,y) y devuelve
  * cuantas hay en 'out' */
+/* tras abrir el escenario y reservar lo demas: reparte la RAM libre (free_kb) entre mas teselas en cache; con poca RAM no cambia nada */
+void  world_cache_autosize(World *w, long free_kb);
 int   world_tiles_near(World *w, s32 x, s32 y, s32 radius, Tile **out, int max);
 s16   world_ground(World *w, s32 x, s32 y);   /* elevacion del suelo (m) */
 const Airport *world_nearest_airport(World *w, s32 x, s32 y, s32 *dist);

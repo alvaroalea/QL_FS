@@ -296,6 +296,7 @@ int sim_init(const char *scn, const char *acf, int hour)
     if (sim_restore) { snap_restore(sim_restore == 2); sim_restore = 0; }
     panel_init(sim.scr, &sim.ac, acf, backbuf);   /* backbuf sirve de borrador para precalcular la rosa */
     snd_init();
+    world_cache_autosize(&sim.w, plat_free_kb());   /* con RAM de sobra, mas teselas en cache (menos cargas de disco); con 640 KB no cambia nada */   /* con RAM de sobra, mas teselas en cache (menos cargas de disco); con 640 KB no cambia nada */
     sim.tick_phys = plat_ticks();
     return 0;
 }

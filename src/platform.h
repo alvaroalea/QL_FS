@@ -14,6 +14,7 @@ int   plat_low_warn(void);                 /* QL: 1 si el programa esta en la RA
 void  plat_himem_init(void);            /* QL: pila y monton en la RAM sin contencion (doc/optimizacion.md, «Memoria alta»); en PC no hace nada */
 void  plat_frame(void);           /* fin de cuadro (en PC: volcado de pantalla) */
 void *plat_alloc_hi(long n);      /* memoria de la RAM de expansion (>= $40000, sin contencion con el ZX8301); en PC, malloc */
+long  plat_free_kb(void);         /* KB que quedan en el monton (se prueba con bloques y se liberan); en PC un valor grande fijo */
 void  plat_path(char *out, const char *name);   /* "mono.acf" -> "flp1_mono_acf" */
 
 /* matriz del teclado QL: codigo = fila*8 + bit (KEYROW) - comprobar en QL real */

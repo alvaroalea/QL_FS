@@ -351,8 +351,9 @@ void prof_run(void)
         PROF_MARK(230); PROF_MARK(kb >> 8); PROF_MARK(kb & 255);
         {   void *big = malloc(65536L); PROF_MARK(231); PROF_MARK(big != NULL); if (big) free(big); }
         {   int i, nt = 0; long by = 0;
-            for (i = 0; i < TILE_CACHE; i++) if (sim.w.cache[i].tx >= 0) {
+            for (i = 0; i < sim.w.ncache; i++) if (sim.w.cache[i].tx >= 0) {
                 nt++; by += sim.w.tdir_size[sim.w.cache[i].ty * sim.w.ntx + sim.w.cache[i].tx] + 2 + (long)sizeof(Obj) * (sim.w.cache[i].nobj + 1); }
+            PROF_MARK(236); PROF_MARK(sim.w.ncache & 255); PROF_MARK((sim.w.ncache >> 8) & 255); PROF_MARK(237); PROF_MARK((int)(sim.w.mem_budget >> 10) & 255); PROF_MARK((int)(sim.w.mem_budget >> 18) & 255);
             PROF_MARK(232); PROF_MARK(nt); PROF_MARK(233); PROF_MARK((int)(by >> 8) & 255); PROF_MARK((int)(by >> 16) & 255);
             { u32 mx = 0, sm = 0; int t2; for (t2 = 0; t2 < sim.w.ntx * sim.w.nty; t2++) { sm += sim.w.tdir_size[t2]; if (sim.w.tdir_size[t2] > mx) mx = sim.w.tdir_size[t2]; }
               PROF_MARK(234); PROF_MARK((int)(mx >> 8) & 255); PROF_MARK((int)(mx >> 16) & 255); PROF_MARK(235); PROF_MARK((int)(sm >> 8) & 255); PROF_MARK((int)(sm >> 16) & 255); } }
