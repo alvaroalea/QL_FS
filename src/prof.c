@@ -335,6 +335,12 @@ void prof_run(void)
         else sim.f.thr[0] = sim.f.thr[1] = FXF(6, 10);
     }
     if (PROF_SCENE == 2 || PROF_SCENE == 4) sim.view_mode = VIEW_CHASE;
+#ifdef PROF_HOUR
+    sim.clock = PROF_HOUR * 3600UL;               /* hora de la prueba (estrellas: 22) */
+#endif
+#ifdef PROF_LOOKP
+    sim.lookp = PROF_LOOKP;
+#endif
     if (PROF_PAUSE) sim.paused = 1;              /* fisica parada: escena identica a la del PC (tools/ql_shot.sh) */
     {                                            /* direcciones (byte 2 y 1) de un buffer estatico y de un malloc, para ver en que RAM caen */
         void *m = malloc(20000);

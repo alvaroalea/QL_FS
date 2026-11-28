@@ -65,7 +65,7 @@ ROWS = [
            key("3", None, menu=["Avión 3", "bimotor"]),
            key("4", "vista", ["Mirar a la", "izquierda"], menu=["Avión 4", "reactor"]),
            key("5", "vista", ["Mirar al", "frente"]), key("6", "vista", ["Mirar a la", "derecha"]),
-           key("7"), key("8", "vista", ["Mirar", "atrás"]), key("9"), key("0"),
+           key("7", "vista", ["Mirar", "arriba"]), key("8", "vista", ["Mirar", "atrás"]), key("9", "vista", ["Mirar", "abajo"]), key("0"),
            key("−", "vista", ["Zoom:", "aleja"]), key("=", "vista", ["Zoom:", "acerca"]),
            key("£"), key("\\", "sim", ["Indicador", "de cuadros", "por segundo"])]),
     (0.0, [key("TAB", "sim", ["Pausa"], w=1.4),

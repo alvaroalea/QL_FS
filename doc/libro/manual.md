@@ -117,6 +117,8 @@ La hora de salida (y la que luego avanza durante el vuelo) cambia el aspecto del
 | 06:00 – 06:59 y 19:00 – 20:59 | Atardecer o amanecer |
 | 21:00 – 05:59 | Noche (se encienden las luces de pistas y ciudades, y las luces verdes de eje de las calles de rodaje) |
 
+**Las estrellas.** De noche, y con menos estrellas al anochecer y al amanecer, el cielo lleva unas cien estrellas brillantes en su sitio de una noche de verano en Madrid: giran con la hora, cambian con el rumbo y la actitud del avión y las tapan las nubes y el horizonte. La ventana de la cabina solo abarca 12° hacia arriba, así que para verlas hay que mirar hacia arriba con **7**. Para encontrar el norte mira al rumbo 360 con el morro a 35°: la **Polar** queda casi en el centro, a unos 40° sobre el horizonte, y el Carro de la Osa Mayor y Casiopea giran a su alrededor. Con rumbo este y **7**, a las 22:00 verás Vega, Deneb y Altair (el Triángulo de Verano); mirando al sur, Escorpio con Antares, que es rojiza.
+
 ## Los escenarios
 
 **Península Ibérica.** Catorce aeropuertos con torre, ATIS e ILS, además de unos veinte VOR/DME en ruta, nueve NDB, treinta y tres ciudades, ríos, autovías y las cadenas montañosas principales (Pirineos, Cantábrica, Sistema Central, Béticas, Canarias...). Se empieza en la cabecera de Madrid-Barajas.
@@ -380,6 +382,7 @@ El teclado se lee a la vez: puedes pulsar varias teclas simultáneamente (por ej
 |:----------------|:-------------------------------------------------------|
 | **V** | Cambia de vista: cabina, persecución, torre, lateral. |
 | **5** / **4** / **6** / **8** | En cabina, mirar al frente / izquierda / derecha / atrás. |
+| **7** / **9** | En cabina, mirar hacia arriba / abajo (35° por pulsación, hasta 70° arriba y 35° abajo; **5** vuelve al frente). |
 | **=** / **−** | Zoom: acerca / aleja la cámara. |
 
 ### Radios y navegación

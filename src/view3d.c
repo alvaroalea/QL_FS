@@ -5,6 +5,7 @@
  * U creciendo con la distancia. La perspectiva X/Z no depende de la unidad.
  */
 #include "view3d.h"
+#include "stars.h"
 #if defined(HOST_DEBUG) || defined(OBJ_DUMP)
 #include <stdio.h>
 #endif
@@ -23,6 +24,8 @@ void proj_pt(const s32 *v, int fx, int fy, s32 *out);
 void draw_lights(Surface *s, const s32 *vw, const u8 *idx, int n, int step, int shift, s32 near_z, int fx, int fy, int col, int dbl);
 void draw_lrow(Surface *s, const s32 *p0, const s32 *p1, int cnt, int shift, s32 near_z, int fx, int fy, int col, int dbl);
 int poly_fast(const u8 *idx, int n, const u8 *front, const s32 *pxy_, s32 *out, int cull);
+#else
+static void proj_pt(const s32 *v, int fx, int fy, s32 *out);
 #endif
 
 #define MAXV   96
@@ -154,6 +157,102 @@ void view_sky(Surface *s, const Camera *c)
     B = dB * (VIEW_CY - s->cy0) + uz * ff;
     for (y = s->cy0; y <= s->cy1; y++, B -= dB)
         sky_row(s, y, A, B, K, fs, fh, fg);
+    if (c->star_lim && c->light != LIGHT_DAY && !(c->cloud_base && cz < c->cloud_top)) view_stars(s, c);
+}
+
+/* ------------------------------------------------ estrellas */
+/* Cielo de una noche de verano en Madrid (latitud 40,4). El tiempo sidereo (c->lst) pone el giro del cielo: cada ~24 s de juego se pasan
+ * todas las estrellas y los centros de los grupos a coordenadas locales (este, norte, arriba) con xform3 y se apuntan los grupos que estan
+ * sobre el horizonte. Cada cuadro solo hay que: un xform3 de los centros de esos grupos (su producto con el "adelante" de la camara dice cuales
+ * caen en el campo), un xform3 con la matriz de la camara de las estrellas de esos grupos, y proyectar las que quedan sobre el horizonte
+ * (3 grados) y son lo bastante brillantes: un punto de 1 a 4 pixeles. stars.h lo genera tools/mkstars.py. */
+#define LAT_SIN 10507          /* sin 40,4 grados, Q14 */
+#define LAT_COS 12575
+#define STAR_FOV 10400         /* BAM16: 57 grados, semidiagonal del campo mayor (zoom 128) */
+#define STAR_HOR 820           /* sen(2,9 grados) Q14 */
+#define STAR_CH 24
+
+static s16 star_e[NSTARS * 3];             /* estrellas en (este, norte, arriba) */
+static s16 grp_e[NSGROUPS * 3];            /* centros de los grupos que estan sobre el horizonte, en el mismo sistema */
+static u8 grp_id[NSGROUPS];                /* ... y de que grupo es cada uno */
+static int grp_n;
+static int star_ready;
+static u16 star_S_lst;
+
+static void star_setup(u16 lst)
+{
+    s16 S[9], gin[NSGROUPS * 3], gen[NSGROUPS * 3];
+    s32 sl = isin(lst), cl = icos(lst), out[3 * STAR_CH];
+    int g, i, k, n;
+    if (star_ready && ((u16)(lst - star_S_lst) < 16 || (u16)(star_S_lst - lst) < 16)) return;    /* ~0,1 grados: 24 s */
+    star_ready = 1; star_S_lst = lst;
+    S[0] = (s16)(-sl); S[1] = (s16)cl; S[2] = 0;                                                  /* este */
+    S[3] = (s16)(-((LAT_SIN * cl) >> 14)); S[4] = (s16)(-((LAT_SIN * sl) >> 14)); S[5] = LAT_COS;   /* norte */
+    S[6] = (s16)((LAT_COS * cl) >> 14); S[7] = (s16)((LAT_COS * sl) >> 14); S[8] = LAT_SIN;      /* arriba */
+    for (k = 0; k < NSTARS; k += STAR_CH) {
+        n = MIN(STAR_CH, NSTARS - k);
+        xform3(S, star_v + k * 3, out, n);
+        for (i = 0; i < n * 3; i++) star_e[k * 3 + i] = (s16)out[i];
+    }
+    for (g = 0; g < NSGROUPS; g++) { gin[g * 3] = star_grp[g].c[0]; gin[g * 3 + 1] = star_grp[g].c[1]; gin[g * 3 + 2] = star_grp[g].c[2]; }
+    xform3(S, gin, out, NSGROUPS);
+    for (g = 0; g < NSGROUPS; g++) { gen[g * 3] = (s16)out[g * 3]; gen[g * 3 + 1] = (s16)out[g * 3 + 1]; gen[g * 3 + 2] = (s16)out[g * 3 + 2]; }
+    grp_n = 0;
+    for (g = 0; g < NSGROUPS; g++) {
+        const StarGroup *sg = &star_grp[g];
+        if (sg->rad < 16384 && gen[g * 3 + 2] <= -isin(sg->rad)) continue;           /* el grupo entero esta bajo el horizonte */
+        grp_id[grp_n] = (u8)g;
+        grp_e[grp_n * 3] = gen[g * 3]; grp_e[grp_n * 3 + 1] = gen[g * 3 + 1]; grp_e[grp_n * 3 + 2] = gen[g * 3 + 2];
+        grp_n++;
+    }
+}
+
+void view_stars(Surface *s, const Camera *c)
+{
+    s16 F[9];
+    s32 out[3 * STAR_CH], p[2], lim = c->star_lim;
+    u8 take[NSGROUPS];
+    int g, i, k, n, st, nn, any = 0, sx, sy, col;
+    const StarGroup *sg;
+
+    star_setup(c->lst);
+    if (!grp_n) return;
+    for (i = 0; i < 6; i++) F[i] = 0;
+    F[6] = c->m[6]; F[7] = c->m[7]; F[8] = c->m[8];               /* la tercera fila de salida es el producto con "adelante" */
+    xform3(F, grp_e, out, grp_n);                                  /* (grp_n <= NSGROUPS <= STAR_CH) */
+    for (g = 0; g < grp_n; g++) {
+        sg = &star_grp[grp_id[g]];
+        take[g] = 0;
+        if (sg->mmin > lim && !(lim >= 27 && grp_id[g] == 0)) continue;
+        if (out[g * 3 + 2] > icos((u16)(sg->rad + STAR_FOV)) || (u32)sg->rad + STAR_FOV >= 32768U) take[g] = 1, any = 1;
+    }
+    if (!any) return;
+    for (g = 0; g < grp_n; g++) {
+        if (!take[g]) continue;
+        sg = &star_grp[grp_id[g]];
+        for (k = 0; k < sg->n; k += STAR_CH) {
+            nn = MIN(STAR_CH, sg->n - k);
+            st = sg->first + k;
+            xform3(c->m, star_e + st * 3, out, nn);
+            for (i = 0; i < nn; i++) {
+                n = st + i;
+                if (star_m[n] > lim && !((star_f[n] & 2) && lim >= 27)) continue;
+                if (star_e[n * 3 + 2] < STAR_HOR || out[i * 3 + 2] < 1500) continue;       /* bajo el horizonte / detras */
+                proj_pt(out + i * 3, c->fx, c->fy, p);
+                sx = (int)p[0]; sy = (int)p[1];
+                if (sx < s->cx0 || sx > s->cx1 || sy < s->cy0 || sy > s->cy1) continue;
+                col = (star_f[n] & 1) ? C_RED : C_WHITE;
+                if (c->light == LIGHT_DUSK)                                    /* sobre el cielo rojo punteado: fondo negro para que se vea */
+                    gfx_rect(s, sx - 1, sy - 1, sx + 2, sy + 2, fill_tab[F_BLACK]);
+                if (star_m[n] <= 20) {                                         /* magnitud <= 1: 2x2 */
+                    gfx_pixel(s, sx, sy, col); gfx_pixel(s, sx + 1, sy, col);
+                    gfx_pixel(s, sx, sy + 1, col); gfx_pixel(s, sx + 1, sy + 1, col);
+                } else if (star_m[n] <= 33) {                                  /* hasta 2,3: 2x1 */
+                    gfx_pixel(s, sx, sy, col); gfx_pixel(s, sx + 1, sy, col);
+                } else gfx_pixel(s, sx, sy, col);
+            }
+        }
+    }
 }
 
 /* ------------------------------------------------ proyeccion */

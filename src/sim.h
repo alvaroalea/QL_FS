@@ -39,7 +39,7 @@ typedef struct {
     Camera cam;
     u8 *scr;
     Surface view;
-    int view_mode, look, zoom;
+    int view_mode, look, lookp, zoom;
     u32 tick_phys, nsteps;
     u32 clock;            /* segundos desde medianoche */
     int clock_sub;

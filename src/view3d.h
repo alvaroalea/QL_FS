@@ -18,6 +18,8 @@ typedef struct {
     s32 ground;              /* Q8 m: cota del suelo bajo la camara */
     s16 cloud_base, cloud_top;   /* m, 0 = sin nubes */
     s32 vis;                 /* visibilidad m */
+    u16 lst;                 /* tiempo sidereo local, BAM16 (la hora da el giro del cielo) */
+    s16 star_lim;            /* (magnitud limite + 1) * 10; 0 = sin estrellas */
 } Camera;
 
 typedef struct {
@@ -38,6 +40,7 @@ void cam_set(Camera *c, s32 x, s32 y, s32 z, u16 hdg, s16 pit, s16 bnk);
 void cam_zoom(Camera *c, int z256);  /* 256 = normal */
 
 void view_sky(Surface *s, const Camera *c);
+void view_stars(Surface *s, const Camera *c);   /* las pinta view_sky de noche y al anochecer */
 void view_world(Surface *s, const Camera *c, World *w);
 /* la misma vista partida: begin reune y ordena (devuelve el coste total), step dibuja objetos hasta gastar el presupuesto */
 s32  view_world_begin(const Camera *c, World *w);

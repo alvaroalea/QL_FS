@@ -371,7 +371,9 @@ static void controls_frame(void)
     if (hit(KEY_G) && sim.ac.retract) f->gear_down = !f->gear_down;
     if (hit(KEY_DOT) && sh) f->parking = !f->parking;   /* Mayus+punto: freno de estacionamiento */
     if (hit(KEY_V)) sim.view_mode = (sim.view_mode + 1) & 3;
-    if (hit(KEY_5)) sim.look = 0;
+    if (hit(KEY_7) && sim.lookp < 2) sim.lookp++;                    /* 7 / 9: mirar arriba / abajo (35 grados por pulsacion) */
+    if (hit(KEY_9) && sim.lookp > -1) sim.lookp--;
+    if (hit(KEY_5)) { sim.look = 0; sim.lookp = 0; }
     if (hit(KEY_4)) sim.look = -16384;
     if (hit(KEY_6)) sim.look = 16384;
     if (hit(KEY_8)) sim.look = 32767;
@@ -414,6 +416,17 @@ static void cam_look(Camera *c, const s16 *A, u16 off)
     }
 }
 
+static void cam_look_pitch(Camera *c, u16 off)                /* gira la camara hacia arriba (off BAM) sobre su eje derecho */
+{
+    s32 co = icos(off), so = isin(off);
+    int k;
+    for (k = 0; k < 3; k++) {
+        s16 f = c->m[6 + k], u = c->m[3 + k];
+        c->m[6 + k] = (s16)((f * co + u * so) >> 14);
+        c->m[3 + k] = (s16)((u * co - f * so) >> 14);
+    }
+}
+
 static void setup_camera(s16 *am)
 {
     Flight *f = &sim.f;
@@ -425,11 +438,14 @@ static void setup_camera(s16 *am)
     u32 hr = (sim.clock / 3600UL) % 24;
     attitude_matrix(h, p, b, am);
     c->light = (hr < 6 || hr >= 21) ? LIGHT_NIGHT : ((hr < 7 || hr >= 19) ? LIGHT_DUSK : LIGHT_DAY);
+    c->star_lim = (s16)(c->light == LIGHT_NIGHT ? 99 : (hr == 19 ? 18 : (c->light == LIGHT_DUSK ? 27 : 0)));   /* magnitudes: todas / <=0,8 / <=1,7 */
+    c->lst = (u16)((((sim.clock + 86400UL - 23940UL) % 86400UL) * 512UL) / 675UL);   /* tiempo sidereo local: hora - 6,65 h (mediados de julio, Madrid) */
     c->ground = (s32)world_ground(&sim.w, f->x >> 8, f->y >> 8) << 8;
     switch (sim.view_mode) {
     case VIEW_COCKPIT:
         cam_set(c, f->x, f->y, f->z, h, p, b);
         if (sim.look) cam_look(c, am, (u16)sim.look);
+        if (sim.lookp) cam_look_pitch(c, (u16)(sim.lookp * 6372));
         break;
     case VIEW_CHASE:
         {   /* detras y algo a la izquierda (15 grados), mirando al avion */

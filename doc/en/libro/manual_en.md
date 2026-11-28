@@ -119,6 +119,8 @@ The departure time (and the one that then advances during the flight) changes th
 | 06:00 – 06:59 and 19:00 – 20:59 | Dusk or dawn |
 | 21:00 – 05:59 | Night (runway and city lights come on, and the green taxiway centre-line lights) |
 
+**The stars.** At night, with fewer stars at dusk and dawn, the sky carries about a hundred bright stars in their place for a summer night in Madrid: they turn with the time, follow the heading and attitude of the aircraft, and are hidden by clouds and the horizon. The cockpit window only spans 12° upwards, so to see them look up with **7**. To find north, fly heading 360 and look up 35°: **Polaris** sits almost in the centre, about 40° above the horizon, with the Big Dipper and Cassiopeia turning around it. Heading east with **7**, at 22:00 you will see Vega, Deneb and Altair (the Summer Triangle); looking south, Scorpius with reddish Antares.
+
 ## The sceneries
 
 **Iberian Peninsula.** Fourteen airports with tower, ATIS and ILS, plus about twenty en-route VOR/DMEs, nine NDBs, thirty-three cities, rivers, motorways and the main mountain ranges (Pyrenees, Cantabrian, Central System, Betic, Canary Islands...). You start at the threshold of Madrid-Barajas.
@@ -384,6 +386,7 @@ The keyboard is read all at once: you can press several keys simultaneously (for
 |:----------------|:-------------------------------------------------------|
 | **V** | Changes view: cockpit, chase, tower, side. |
 | **5** / **4** / **6** / **8** | In the cockpit, look ahead / left / right / behind. |
+| **7** / **9** | In the cockpit, look up / down (35° per press, up to 70° up and 35° down; **5** goes back to ahead). |
 | **=** / **−** | Zoom: camera closer / farther. |
 
 ### Radios and navigation
