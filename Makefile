@@ -1,4 +1,4 @@
-# QFS - compilacion cruzada para el Sinclair QL con XTC68 (qcc + as68)
+# AFS - compilacion cruzada para el Sinclair QL con XTC68 (qcc + as68)
 #   make            -> build/qfs.img y build/qfs.win (por defecto)
 #   make build/qfs  -> solo el ejecutable QDOS
 #   make SOLO_C=1   -> sin ensamblador (para aislar fallos de ql68k.s)
@@ -68,7 +68,7 @@ $(DATOS):
 
 build/boot_flp1 build/boot_win1: Makefile
 	@mkdir -p build
-	printf '100 REMark QFS - simulador de vuelo\n110 D$$ = "$(patsubst build/boot_%,%,$@)_"\n120 MODE 4\n130 EXEC_W $(patsubst build/boot_%,%,$@)_qfs\n' > $@
+	printf '100 REMark AFS - simulador de vuelo\n110 D$$ = "$(patsubst build/boot_%,%,$@)_"\n120 MODE 4\n130 EXEC_W $(patsubst build/boot_%,%,$@)_qfs\n' > $@
 
 # qltools/qxltool usan el nombre del fichero sin directorio: se prepara una carpeta con los nombres de disco
 build/disco/qfs: build/qfs $(DATOS)
@@ -78,7 +78,7 @@ build/disco/qfs: build/qfs $(DATOS)
 
 build/qfs.img: build/disco/qfs build/boot_flp1
 	rm -f $@
-	$(QLTOOLS) $@ -fdd QFS > /dev/null
+	$(QLTOOLS) $@ -fdd AFS > /dev/null
 	cp build/boot_flp1 build/disco/boot
 	cd build/disco && $(QLTOOLS) ../qfs.img -W $(DISCOFILES) > /dev/null
 	@echo "$@:"; $(QLTOOLS) $@ -d
@@ -87,7 +87,7 @@ build/qfs.win: build/disco/qfs build/boot_win1
 	rm -f $@
 	cp build/boot_win1 build/disco/boot
 	( for f in $(DISCOFILES); do echo "wr build/disco/$$f $$f"; done; \
-	  echo ls; echo quit ) | $(QXLTOOL) -w $@ $(WINMB) QFS | tail -12
+	  echo ls; echo quit ) | $(QXLTOOL) -w $@ $(WINMB) AFS | tail -12
 
 img: build/qfs.img
 win: build/qfs.win

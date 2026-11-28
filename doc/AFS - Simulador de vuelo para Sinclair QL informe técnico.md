@@ -1,10 +1,10 @@
-# QFS – Simulador de vuelo para Sinclair QL: informe técnico
+# AFS – Simulador de vuelo para Sinclair QL: informe técnico
 
 Nov 24, 2026 · @Alvaro
 
 ## Resumen y disco de referencia
 
-QFS es un simulador de vuelo para el Sinclair QL (68008, 640 KB, modo 4 a 512x256 en 4 colores, QSound con PSG) en C con las partes críticas en ensamblador. Ya vuela en un banco de pruebas en PC que usa el mismo código y el mismo formato de pantalla que el QL. Tiene cuatro aviones (planeador, monomotor, bimotor y reactor), un escenario de 3 aeropuertos con ILS, VOR, NDB y ATC básico, día/atardecer/noche y vistas de cabina y exteriores.
+AFS es un simulador de vuelo para el Sinclair QL (68008, 640 KB, modo 4 a 512x256 en 4 colores, QSound con PSG) en C con las partes críticas en ensamblador. Ya vuela en un banco de pruebas en PC que usa el mismo código y el mismo formato de pantalla que el QL. Tiene cuatro aviones (planeador, monomotor, bimotor y reactor), un escenario de 3 aeropuertos con ILS, VOR, NDB y ATC básico, día/atardecer/noche y vistas de cabina y exteriores.
 
 La imagen `disk1_1.img` (160 KB, disco de arranque directo de IBM PC sin sistema de ficheros) es **Microsoft Flight Simulator 1.0 (1982, Bruce Artwick)**. Lo que sale de sus textos y de la estructura de sectores (sin desensamblar el código):
 
@@ -12,9 +12,9 @@ La imagen `disk1_1.img` (160 KB, disco de arranque directo de IBM PC sin sistema
 - ATIS por aeropuerto con letra de información, pista en uso y frecuencia del localizador ("ILS RUNWAY 31 APPROACH IN USE").
 - Editor de entorno: hora, estación, dos capas de nubes, tres capas de viento con altura de cizalladura, viento en superficie y factor de fiabilidad.
 - Modo "Europe 1917" (combate), modo demostración, *slew* y "reality mode".
-- Mensajes de choque: MOUNTAIN CRASH, BUILDING CRASH, SPLASH! y "CRASH! - LOWER YOUR GEAR NEXT TIME!". QFS los reproduce como homenaje.
+- Mensajes de choque: MOUNTAIN CRASH, BUILDING CRASH, SPLASH! y "CRASH! - LOWER YOUR GEAR NEXT TIME!". AFS los reproduce como homenaje.
 
-QFS toma de él la estructura (mundo plano con objetos, radioayudas, ATIS, choques por tipo de obstáculo), pero añade lo que pedías y el original no tenía: varios aviones cargables con motor de mezcla y paso, flaps, tren retráctil, vista exterior, torre y escenarios cargados de disco por teselas.
+AFS toma de él la estructura (mundo plano con objetos, radioayudas, ATIS, choques por tipo de obstáculo), pero añade lo que pedías y el original no tenía: varios aviones cargables con motor de mezcla y paso, flaps, tren retráctil, vista exterior, torre y escenarios cargados de disco por teselas.
 
 ## Requisitos y decisiones de diseño
 
@@ -109,7 +109,7 @@ El código se reparte en 14 módulos C y 2 de ensamblador: todo el núcleo es po
 
 Cada cuadro sigue este orden:
 
-&#91;embedded content: bucle principal de QFS · 7 etapas\]
+&#91;embedded content: bucle principal de AFS · 7 etapas\]
 
 El reloj de 50 Hz (tarea de sondeo de QDOS) marca cuántos pasos de física tocan; si el dibujo se retrasa, se hacen hasta 4 pasos seguidos y no se acumula retraso. Las teselas se leen de disco dentro de la Vista 3D cuando el avión se acerca a una nueva.
 
@@ -167,7 +167,7 @@ Los cuatro aviones de ejemplo salen de `tools/mkaviones.py`, pero una vez genera
 
 ## Mockups de la vista
 
-Las imágenes no son dibujos aparte: las ha pintado el propio motor de QFS en un buffer con el formato exacto de la pantalla del QL (modo 4) y se han pasado a PNG con el aspecto 4:3 del monitor. Lo que se ve es lo que debería verse en el QL.
+Las imágenes no son dibujos aparte: las ha pintado el propio motor de AFS en un buffer con el formato exacto de la pantalla del QL (modo 4) y se han pasado a PNG con el aspecto 4:3 del monitor. Lo que se ve es lo que debería verse en el QL.
 
 **Distribución de la pantalla (512x256)**
 
@@ -328,9 +328,9 @@ Las cartas salen de los mismos datos que el escenario (`make cartas`, `tools/car
 
 | PDF | Formato | Páginas | Contenido |
 | --- | --- | --- | --- |
-| `QFS_Carta_Ruta_A3.pdf` | A3 apaisado | 1 | Carta en ruta: costa, relieve, retícula, altitudes mínimas por cuadrícula de 1°, 20 aerovías con rumbos y distancias, VOR con rosa y Morse, NDB, aeropuertos, recuadro de Canarias y leyenda |
-| `QFS_Aeropuertos_A5.pdf` | A5 vertical | 39 | Por aeropuerto: plano de aeródromo (pistas, calles A/B con carteles, plataforma, torre, LOC/GP, tabla de pistas), SID y STAR con perfil ILS, MSA y frustrada |
-| `QFS_Cartas_Visuales_A4.pdf` | A4 apaisado | 13 | Por aeropuerto, a 1:300.000: tintas hipsométricas, ciudades, autovías, ríos, CTR clase D, puntos N/E/S/W, pluma del ILS, frecuencias y circuito |
+| `AFS_Carta_Ruta_A3.pdf` | A3 apaisado | 1 | Carta en ruta: costa, relieve, retícula, altitudes mínimas por cuadrícula de 1°, 20 aerovías con rumbos y distancias, VOR con rosa y Morse, NDB, aeropuertos, recuadro de Canarias y leyenda |
+| `AFS_Aeropuertos_A5.pdf` | A5 vertical | 39 | Por aeropuerto: plano de aeródromo (pistas, calles A/B con carteles, plataforma, torre, LOC/GP, tabla de pistas), SID y STAR con perfil ILS, MSA y frustrada |
+| `AFS_Cartas_Visuales_A4.pdf` | A4 apaisado | 13 | Por aeropuerto, a 1:300.000: tintas hipsométricas, ciudades, autovías, ríos, CTR clase D, puntos N/E/S/W, pluma del ILS, frecuencias y circuito |
 
 Para que cartas y escenario sean coherentes, el escenario ganó calles de rodaje y plataforma en cada aeropuerto, y las montañas se recortan para no invadir las pistas ni las 10 NM de la aproximación final; el generador comprueba que todas las sendas ILS libran el relieve. Las SID, STAR, aerovías, CTR y puntos de notificación son inventados para el juego, construidos sobre las radioayudas del escenario.
 

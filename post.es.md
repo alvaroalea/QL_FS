@@ -6,7 +6,7 @@ Asi que con la ayuda de la IA, he intentado solucionar todos estos problemas, es
 En cualquier caso, el resultado, un simulador de vuelo, con la peninsula iberica bastante completita, capaz de hacer vuelo VFR e IFR, con condiciones atmosfericas, ATC, varios modelos de avion... y un completo manual de casi 200 hojas donde encontraras listas de comprobacion, todas las cartas de vuelo, plano de rutas, SID, Aproximacion... etc... para hacer la experiencia de volar en un QL lo mas parecido a la realidad posible.
 
 
-Alea's Flight Simulator (QFS) en pocas palabras:
+Alea's Flight Simulator (AFS) en pocas palabras:
 
 - Inspirado en el Microsoft Flight Simulator 1.0 de 1982: cabina con instrumentos, vista exterior en 3D y mapa cenital.
 - Escrito en C (c68/XTC68) con ensamblador 68000 en las partes criticas.
@@ -22,5 +22,5 @@ Requisitos: QL con 640 KB, disquete de 720 KB o disco win1_ (el escenario ocupa 
 
 Aviso: el programa lo ha escrito una IA, asi que puede haber bugs. No esta basado en la vida real y, por supuesto, no sirve para aprender a pilotar.
 
-Codigo fuente, documentacion y capturas: https://github.com/alvaroalea/QL_FS
-Descarga (imagen de disquete, disco win1_ y manual en PDF): https://github.com/alvaroalea/QL_FS/releases
+Codigo fuente, documentacion y capturas: https://github.com/alvaroalea/ALEA_FS
+Descarga (imagen de disquete, disco win1_ y manual en PDF): https://github.com/alvaroalea/ALEA_FS/releases

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""iberia.py - genera el escenario "Peninsula Iberica" para QFS.
+"""iberia.py - genera el escenario "Peninsula Iberica" para AFS.
 
 Uso:  iberia.py [escala] [salida.scn] [salida.txt]
       escala 0.5 (por defecto) = distancias a la mitad; 1.0 = tamano real.
@@ -271,7 +271,7 @@ def fmt(v):
 
 def build():
     random.seed(1)
-    lines = ["; Peninsula Iberica para QFS - generado por tools/iberia.py (escala %.2f)" % S,
+    lines = ["; Peninsula Iberica para AFS - generado por tools/iberia.py (escala %.2f)" % S,
              "; Datos aproximados de memoria: NO usar para navegacion real.",
              'NOMBRE "IBERIA"', "TESELA 14", "ELEV 0", ""]
     obst = []          # pistas y aproximaciones finales: las montanas no pueden invadirlas

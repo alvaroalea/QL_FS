@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# libro.sh - genera el manual de instrucciones de QFS (A5) en PDF: doc/QFS_Manual_A5.pdf
+# libro.sh - genera el manual de instrucciones de AFS (A5) en PDF: doc/AFS_Manual_A5.pdf
 #   fuente:  doc/libro/manual.md  (+ metadata.yaml, header.tex, cover.tex, aviso.lua)
 #   portada: doc/Portada.png (a pagina completa)
 # Las ilustraciones salen de los datos del juego: dibujos de los aviones (data/*.acf) y panel numerado
@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PY=python3; [ -x .venv/bin/python ] && PY=.venv/bin/python
-OUT=${1:-doc/QFS_Manual_A5.pdf}
+OUT=${1:-doc/AFS_Manual_A5.pdf}
 IMG=doc/libro/img
 mkdir -p "$IMG" build/libro
 

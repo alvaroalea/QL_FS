@@ -2,7 +2,7 @@
   <img src="doc/Cartel.png" alt="Alea's Flight Simulator 1.0 for Sinclair QL" width="420">
 </p>
 
-# Alea's Flight Simulator (QFS)
+# Alea's Flight Simulator (AFS)
 
 [![English](https://img.shields.io/badge/Language-English-blue)](README.en.md)
 [![Español](https://img.shields.io/badge/Language-Español-red)](README.md)
@@ -75,8 +75,8 @@ El escenario completo (aeropuertos en amarillo, VOR y NDB, autovías y cadenas m
 ```
 make                         # QL completo -> build/qfs.img (disquete) y build/qfs.win (disco duro)
 make -f Makefile.pc          # PC: tablas, escenario, aviones, pruebas y capturas
-make -f Makefile.pc libro    # manual A5 en doc/QFS_Manual_A5.pdf
-make -f Makefile.pc cartas   # cartas en doc/QFS_*.pdf
+make -f Makefile.pc libro    # manual A5 en doc/AFS_Manual_A5.pdf
+make -f Makefile.pc cartas   # cartas en doc/AFS_*.pdf
 ```
 
 En el QL, arranca la imagen (`LRUN flp1_boot` o `LRUN win1_boot`). En sQLux basta con una línea
@@ -87,7 +87,7 @@ En el QL, arranca la imagen (`LRUN flp1_boot` o `LRUN win1_boot`). En sQLux bast
 - [`doc/info.md`](doc/info.md): estado del proyecto, estructura del código, órdenes de `make` y pendiente de verificar en un QL real.
 - [`doc/libro/manual.md`](doc/libro/manual.md): el manual (menús, aviones, mandos, vuelo paso a paso, ILS/VOR/ADF, tráfico aéreo).
 - [`doc/optimizacion.md`](doc/optimizacion.md): mediciones y optimizaciones de rendimiento.
-- [`doc/QFS.pdf`](doc/QFS.pdf): manual y cartas en un solo PDF.
+- [`doc/AFS.pdf`](doc/AFS.pdf): manual y cartas en un solo PDF.
 
 ## Licencia
 

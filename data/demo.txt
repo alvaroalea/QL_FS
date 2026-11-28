@@ -1,5 +1,5 @@
 ; =====================================================================
-; Escenario de demostracion "VALLE DEL QL" (ficticio) para QFS
+; Escenario de demostracion "VALLE DEL QL" (ficticio) para AFS
 ; compilar con:  python3 tools/mkscen.py data/demo.txt build/demo.scn
 ; coordenadas en metros: x = este, y = norte. Rumbos en grados.
 ; =====================================================================

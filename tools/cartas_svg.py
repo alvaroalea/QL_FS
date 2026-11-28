@@ -10,7 +10,7 @@ import json, os, subprocess, sys, tempfile
 
 src = sys.argv[1] if len(sys.argv) > 1 else "build/cartas"
 out = sys.argv[2] if len(sys.argv) > 2 else "doc/svg"
-FILES = {"A3": "QFS_Carta_Ruta_A3.pdf", "A5": "QFS_Aeropuertos_A5.pdf", "A4": "QFS_Cartas_Visuales_A4.pdf"}
+FILES = {"A3": "AFS_Carta_Ruta_A3.pdf", "A5": "AFS_Aeropuertos_A5.pdf", "A4": "AFS_Cartas_Visuales_A4.pdf"}
 pages = json.load(open(os.path.join(src, "paginas.json")))
 os.makedirs(out, exist_ok=True)
 idx = {}

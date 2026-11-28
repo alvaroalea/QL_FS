@@ -250,7 +250,7 @@ dst = sys.argv[1] if len(sys.argv) > 1 else "data"
 for fn, (txt, mk) in AVIONES.items():
     m = mk()
     open(os.path.join(dst, fn), "w").write(
-        "; avion para QFS - texto CLAVE = valor (';' comenta)\n" + txt +
+        "; avion para AFS - texto CLAVE = valor (';' comenta)\n" + txt +
         "; ---- modelo exterior: V = x,y,z (m)  F = relleno, contorno, vertices  L = color, a, b\n" +
         m.text() + "\n")
     print(fn, len(m.v), "vertices", len(m.f), "caras")

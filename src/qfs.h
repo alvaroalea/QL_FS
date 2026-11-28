@@ -1,5 +1,5 @@
 /*
- * QFS - Simulador de vuelo para Sinclair QL (68008, modo 4 512x256)
+ * AFS - Simulador de vuelo para Sinclair QL (68008, modo 4 512x256)
  * qfs.h : tipos, configuracion global y aritmetica de punto fijo.
  *
  * Reglas del proyecto:

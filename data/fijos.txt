@@ -1,4 +1,4 @@
-; Puntos de notificacion de QFS (generado por tools/fijos.py; editable a mano).
+; Puntos de notificacion de AFS (generado por tools/fijos.py; editable a mano).
 ; ICAO  FIJO   USO  CARD  RADIAL  DME    X(m)    Y(m)    LAT       LON   (radial y DME respecto al VOR del aeropuerto)
 GCFV VABUZ SID N     0.0  30.0   -233885   -332152   29.470  -13.876
 GCFV KAZUS SID E    90.0  30.0   -178325   -387712   28.465  -12.573

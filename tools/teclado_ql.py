@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""teclado_ql.py - dibujo del teclado del Sinclair QL con la funcion de cada tecla en QFS (hoja A4 apaisada).
+"""teclado_ql.py - dibujo del teclado del Sinclair QL con la funcion de cada tecla en AFS (hoja A4 apaisada).
 
 Uso: teclado_ql.py [salida.pdf]      (por omision doc/libro/img/teclado_ql.pdf; lo usa tools/libro.sh)
 Cada tecla lleva su rotulo, lo que hace en vuelo, entre parentesis lo que hace con Mayus y, en azul, lo que hace en el menu inicial.
@@ -20,7 +20,7 @@ FAM = {   # familia -> (color de fondo, nombre en la leyenda)
     "vista": (HexColor("#dcefd9"), "Vistas"),
     "radio": (HexColor("#e7dcf3"), "Radios y navegación"),
     "sim": (HexColor("#e4e4e4"), "Simulación"),
-    None: (HexColor("#f7f7f7"), "Sin función en QFS"),
+    None: (HexColor("#f7f7f7"), "Sin función en AFS"),
 }
 MENU = HexColor("#1d4f91")
 
@@ -131,11 +131,11 @@ def draw_key(c, x, y, w, h, k):
 def main():
     W, H = landscape(A4)
     c = canvas.Canvas(OUT, pagesize=(W, H))
-    c.setTitle("QFS - Teclado del Sinclair QL")
-    c.setAuthor("QFS")
+    c.setTitle("AFS - Teclado del Sinclair QL")
+    c.setAuthor("AFS")
     c.setFillColor(black)
     c.setFont("Helvetica-Bold", 17)
-    c.drawString(14 * mm, H - 16 * mm, "El teclado del QL en QFS")
+    c.drawString(14 * mm, H - 16 * mm, "El teclado del QL en AFS")
     lx0 = 14 * mm
     for txt, col, fn in (("Texto negro: lo que hace la tecla en vuelo.", black, "Helvetica"),
                          ("(Rojo entre paréntesis: con MAYÚS pulsada.)", HexColor("#b3261e"), "Helvetica-Bold"),

@@ -1,4 +1,4 @@
-; Peninsula Iberica para QFS - generado por tools/iberia.py (escala 0.50)
+; Peninsula Iberica para AFS - generado por tools/iberia.py (escala 0.50)
 ; Datos aproximados de memoria: NO usar para navegacion real.
 NOMBRE "IBERIA"
 TESELA 14

@@ -1166,8 +1166,8 @@ RAM contendida (<$40000) o con `self-modifying code` en un Super Gold Card (6802
 ### ¿Cambiar el motor por `QL_GamesAPI/ql3d`?
 
 No. `ql3d` (carpeta en minúsculas) es un motor de polígonos convexos para naves en modo 8 (256×256, 8 colores): objetos de ≤ 128 vértices con coordenadas `i8`, 32 objetos por escena, sin recorte contra el plano cercano (el objeto que lo cruza se descarta entero), sin polígonos cóncavos
-y con orden del pintor solo entre objetos. QFS necesita lo contrario: miles de objetos por teselas, suelo que cruza el plano cercano (la pista bajo el avión), cóncavos, modo 4 de 512 px y cielo/horizonte. Y en rendimiento no aporta nada: su `xform` cuesta 1,45 k ciclos por vértice **con
-proyección** (medido sin contención) frente a ~1,1 k de QFS (transformar ~550 + proyectar ~600). Sus trucos ya aplicados aquí (descarte por esfera envolvente, relleno de convexos sin tablas de aristas, caras de suelo sin normales) o medidos sin ganancia (recíprocos para las pendientes: −0,2 a −0,4 %,
+y con orden del pintor solo entre objetos. AFS necesita lo contrario: miles de objetos por teselas, suelo que cruza el plano cercano (la pista bajo el avión), cóncavos, modo 4 de 512 px y cielo/horizonte. Y en rendimiento no aporta nada: su `xform` cuesta 1,45 k ciclos por vértice **con
+proyección** (medido sin contención) frente a ~1,1 k de AFS (transformar ~550 + proyectar ~600). Sus trucos ya aplicados aquí (descarte por esfera envolvente, relleno de convexos sin tablas de aristas, caras de suelo sin normales) o medidos sin ganancia (recíprocos para las pendientes: −0,2 a −0,4 %,
 matriz en la pila con `(a4)+`: −3,5 % de `xform`, ≈ 0,1 % de la vista).
 
 ### Filas de luces de noche (`draw_lrow`), segunda parte del 28 noviembre 2026

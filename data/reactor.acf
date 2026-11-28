@@ -1,4 +1,4 @@
-; avion para QFS - texto CLAVE = valor (';' comenta)
+; avion para AFS - texto CLAVE = valor (';' comenta)
 NOMBRE = REACTOR EJECUTIVO
 MOTOR = REACTOR
 MOTORES = 2

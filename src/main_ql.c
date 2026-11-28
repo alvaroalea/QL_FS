@@ -15,7 +15,7 @@ long _stack = 32768L;                  /* c68: pila de la tarea (en la RAM conte
 #else
 long _stack = 6144L;                   /* pila inicial, solo hasta que plat_himem_init cambia a una de 24 KB en RAM alta */
 #endif
-char _prog_name[] = "QFS";
+char _prog_name[] = "AFS";
 
 extern char plat_dev[8];
 #ifdef QFS_PROF

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""cartas.py - cartas aeronauticas en PDF del escenario Peninsula Iberica de QFS.
+"""cartas.py - cartas aeronauticas en PDF del escenario Peninsula Iberica de AFS.
 
 Uso: cartas.py [escala] [carpeta]
-  QFS_Carta_Ruta_A3.pdf      carta de navegacion en ruta (A3 apaisado)
-  QFS_Aeropuertos_A5.pdf     por aeropuerto: plano de aerodromo, SID y STAR + ILS (A5 vertical)
-  QFS_Cartas_Visuales_A4.pdf por aeropuerto: carta visual de los alrededores (A4 apaisado)
+  AFS_Carta_Ruta_A3.pdf      carta de navegacion en ruta (A3 apaisado)
+  AFS_Aeropuertos_A5.pdf     por aeropuerto: plano de aerodromo, SID y STAR + ILS (A5 vertical)
+  AFS_Cartas_Visuales_A4.pdf por aeropuerto: carta visual de los alrededores (A4 apaisado)
 
 Todo sale de los mismos datos que el escenario (tools/iberia.py), asi que lo que
 se ve en la carta es lo que hay en el simulador. Distancias en NM del simulador,
@@ -24,6 +24,12 @@ from shapely.geometry import box, Point, LineString
 from reportlab.pdfgen import canvas
 
 
+if os.environ.get("QFS_LANG", "es") == "en":
+    import cartas_en
+    TR = cartas_en.tr
+else:
+    def TR(s):
+        return s
 PAGELOG = []          # (grupo, nombre) de cada pagina en el orden en que se genera: lo lee tools/cartas_svg.py para trocear los PDF
 
 
@@ -35,6 +41,22 @@ class Canvas(canvas.Canvas):
     def showPage(self):
         PAGELOG.append((self.group, self.pn))
         canvas.Canvas.showPage(self)
+
+    # idioma de los textos: QFS_LANG=en pasa cada cadena por cartas_en.tr() (frases y palabras; nombres propios sin tocar)
+    def drawString(self, x, y, s, *a, **k):
+        canvas.Canvas.drawString(self, x, y, TR(s), *a, **k)
+
+    def drawCentredString(self, x, y, s, *a, **k):
+        canvas.Canvas.drawCentredString(self, x, y, TR(s), *a, **k)
+
+    def drawRightString(self, x, y, s, *a, **k):
+        canvas.Canvas.drawRightString(self, x, y, TR(s), *a, **k)
+
+    def stringWidth(self, s, *a, **k):
+        return canvas.Canvas.stringWidth(self, TR(s), *a, **k)
+
+    def setTitle(self, t):
+        canvas.Canvas.setTitle(self, TR(t))
 
 from reportlab.lib.pagesizes import A3, A4, A5, landscape
 from reportlab.lib.units import mm
@@ -448,7 +470,7 @@ def north_arrow(c, x, y, size=8, label="N V"):
     c.restoreState()
 
 
-DISCLAIMER = "CARTA DEL SIMULADOR QFS - NO APTA PARA LA NAVEGACIÓN REAL"
+DISCLAIMER = "CARTA DEL SIMULADOR AFS - NO APTA PARA LA NAVEGACIÓN REAL"
 SCALE_NOTE = "Distancias a escala %s del simulador. Rumbos verdaderos. Elevaciones y altitudes en pies." % (
     "1:%g" % (1 / S) if S != 1 else "1:1")
 
@@ -477,8 +499,8 @@ def enroute(fn):
     W, H = landscape(A3)
     c = Canvas(fn, pagesize=(W, H))
     c.group, c.pn = "A3", "ruta_a3"
-    c.setTitle("QFS - Carta de navegación en ruta - Península Ibérica")
-    c.setAuthor("QFS")
+    c.setTitle("AFS - Carta de navegación en ruta - Península Ibérica")
+    c.setAuthor("AFS")
     m = 8 * mm
     # limites: todo el escenario util (sin el interior de Francia ni Marruecos)
     xs = [I.P(43.9, -9.6)[0], I.P(40, 4.6)[0], I.P(28.6, -18.3)[0]]
@@ -629,7 +651,7 @@ def enroute(fn):
     c.rect(m, top - 14 * mm, W - 2 * m, 14 * mm, fill=1, stroke=0)
     text(c, m + 4 * mm, top - 7 * mm, "CARTA DE NAVEGACIÓN EN RUTA  ·  PENÍNSULA IBÉRICA, BALEARES Y CANARIAS", 15,
          "Helvetica-Bold", white)
-    text(c, m + 4 * mm, top - 11.5 * mm, "QFS – Simulador de vuelo para Sinclair QL  ·  ENR 1  ·  " + SCALE_NOTE, 7.5,
+    text(c, m + 4 * mm, top - 11.5 * mm, "AFS – Simulador de vuelo para Sinclair QL  ·  ENR 1  ·  " + SCALE_NOTE, 7.5,
          color=white)
     text(c, W - m - 4 * mm, top - 7 * mm, "ENR 1", 15, "Helvetica-Bold", white, "r")
     text(c, W - m - 4 * mm, top - 11.5 * mm, DISCLAIMER, 7, "Helvetica-Bold", HexColor("#ffd166"), "r")
@@ -703,7 +725,7 @@ def a5_header(c, W, H, L, title, code):
 def a5_footer(c, W, L, page):
     m = 6 * mm
     text(c, m, m - 4, DISCLAIMER, 5, "Helvetica-Bold", HexColor("#a00000"))
-    text(c, W - m, m - 4, "QFS · AD 2-%s-%d" % (L["icao"], page), 5, align="r")
+    text(c, W - m, m - 4, "AFS · AD 2-%s-%d" % (L["icao"], page), 5, align="r")
 
 
 def aerodrome(c, L):
@@ -1124,8 +1146,8 @@ def star_page(c, L):
 
 def airports_a5(fn):
     c = Canvas(fn, pagesize=A5)
-    c.setTitle("QFS - Cartas de aeropuerto (ADC, SID, STAR/ILS)")
-    c.setAuthor("QFS")
+    c.setTitle("AFS - Cartas de aeropuerto (ADC, SID, STAR/ILS)")
+    c.setAuthor("AFS")
     for L in APTS:
         aerodrome(c, L)
         sid_page(c, L)
@@ -1282,7 +1304,7 @@ def vfr_page(c, L):
     c.rect(m, top - 12 * mm, W - 2 * m, 12 * mm, fill=1, stroke=0)
     text(c, m + 3 * mm, top - 6.5 * mm, "CARTA DE NAVEGACIÓN VISUAL  ·  %s (%s)" % (L["name"], L["icao"]), 13,
          "Helvetica-Bold", white)
-    text(c, m + 3 * mm, top - 10.3 * mm, "QFS · VAC %s · Escala 1:300.000 del simulador (1 cm = 3 km del simulador) · %s" % (
+    text(c, m + 3 * mm, top - 10.3 * mm, "AFS · VAC %s · Escala 1:300.000 del simulador (1 cm = 3 km del simulador) · %s" % (
         L["icao"], SCALE_NOTE), 6.5, color=white)
     text(c, W - m - 3 * mm, top - 6.5 * mm, "VAC", 13, "Helvetica-Bold", white, "r")
     text(c, W - m - 3 * mm, top - 10.3 * mm, DISCLAIMER, 6, "Helvetica-Bold", HexColor("#ffe08a"), "r")
@@ -1336,8 +1358,8 @@ def vfr_page(c, L):
 def vfr_a4(fn):
     W, H = landscape(A4)
     c = Canvas(fn, pagesize=(W, H))
-    c.setTitle("QFS - Cartas de navegación visual (VAC)")
-    c.setAuthor("QFS")
+    c.setTitle("AFS - Cartas de navegación visual (VAC)")
+    c.setAuthor("AFS")
     for L in APTS:
         c.group, c.pn = "A4", "%s_vac_a4" % L["icao"]
         vfr_page(c, L)
@@ -1363,11 +1385,11 @@ def check_approaches():
 if __name__ == "__main__":
     os.makedirs(OUTDIR, exist_ok=True)
     import json
-    enroute(os.path.join(OUTDIR, "QFS_Carta_Ruta_A3.pdf"))
+    enroute(os.path.join(OUTDIR, "AFS_Carta_Ruta_A3.pdf"))
     import cartas_a5
-    n = cartas_a5.build(os.path.join(OUTDIR, "QFS_Aeropuertos_A5.pdf"))
+    n = cartas_a5.build(os.path.join(OUTDIR, "AFS_Aeropuertos_A5.pdf"))
     print("A5: %d paginas" % n)
-    vfr_a4(os.path.join(OUTDIR, "QFS_Cartas_Visuales_A4.pdf"))
+    vfr_a4(os.path.join(OUTDIR, "AFS_Cartas_Visuales_A4.pdf"))
     print("cartas en", OUTDIR)
     a3 = [p for p in PAGELOG if p[0] == "A3"]
     a4 = [p for p in PAGELOG if p[0] == "A4"]

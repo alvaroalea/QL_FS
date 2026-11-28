@@ -18,7 +18,7 @@ import cartas as C
 from procdesign import Designer, polar, NM
 
 des = Designer(C.CONES, C.CITIES, C.APTS, C.NAVS, ground=C.ground_m)
-lines = ["; Puntos de notificacion de QFS (generado por tools/fijos.py; editable a mano).",
+lines = ["; Puntos de notificacion de AFS (generado por tools/fijos.py; editable a mano).",
          "; ICAO  FIJO   USO  CARD  RADIAL  DME    X(m)    Y(m)    LAT       LON   (radial y DME respecto al VOR del aeropuerto)"]
 for L in C.APTS:
     vpos = L["vor"][2]

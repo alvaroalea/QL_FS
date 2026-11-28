@@ -1,4 +1,4 @@
-; avion para QFS - texto CLAVE = valor (';' comenta)
+; avion para AFS - texto CLAVE = valor (';' comenta)
 NOMBRE = BIMOTOR 2X300HP
 MOTOR = PISTON
 MOTORES = 2

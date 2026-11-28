@@ -24,7 +24,7 @@ M = 6 * mm
 def header(c, L, title, code, proc, freqs):
     c.setFillColor(black)
     c.rect(M, H - M - 13 * mm, W - 2 * M, 13 * mm, fill=1, stroke=0)
-    text(c, M + 2.5 * mm, H - M - 5 * mm, "AIP-QFS", 6.5, "Helvetica-Bold", HexColor("#ffd166"))
+    text(c, M + 2.5 * mm, H - M - 5 * mm, "AIP-AFS", 6.5, "Helvetica-Bold", HexColor("#ffd166"))
     text(c, M + 2.5 * mm, H - M - 8.5 * mm, code, 5.5, color=white)
     text(c, M + 2.5 * mm, H - M - 11.5 * mm, "VAR 0° · TA 6000 ft", 5, color=white)
     text(c, W / 2 - 4 * mm, H - M - 5.2 * mm, title[0], 6.2, "Helvetica-Bold", white, "c")
@@ -45,7 +45,7 @@ def header(c, L, title, code, proc, freqs):
 
 def footer(c, code):
     text(c, M, M - 4, C.DISCLAIMER, 5, "Helvetica-Bold", HexColor("#a00000"))
-    text(c, W - M, M - 4, "QFS · %s" % code, 5, align="r")
+    text(c, W - M, M - 4, "AFS · %s" % code, 5, align="r")
 
 
 def base_freqs(L, P, extra=()):
@@ -121,7 +121,7 @@ def adc_data(c, L, P, code, index, second=False):
             ("3", "Elevación / temp. referencia", "%d ft (%d m)  /  %.1f °C" % (round(L["elev"] * 3.28084), L["elev"], REF_TEMP.get(L["icao"], 30))),
             ("4", "Ondulación geoidal / undulation", "No aplica: mundo plano a cota 0"),
             ("5", "Declinación magnética / MAG VAR", "0° (rumbos verdaderos en todo el simulador)"),
-            ("6", "Administración / operator", "QFS Aeropuertos · TWR %.2f" % L["twr"]),
+            ("6", "Administración / operator", "AFS Aeropuertos · TWR %.2f" % L["twr"]),
             ("7", "Tipo de tránsito / traffic", "IFR / VFR"),
             ("8", "Horario / hours (AD 2.3)", "H24 · ATS H24 · Combustible AVGAS 100LL y JET A1")]
     y = table(c, y, (0, 4, 48), rows, 5.0, head=False, lh=3.1 * k)
@@ -742,8 +742,8 @@ def build(fn):
     des = Designer(C.CONES, C.CITIES, C.APTS, C.NAVS, ground=C.ground_m, fixes=load_fixes(C.FIXES_FILE))
     cv = C.Canvas(fn, pagesize=A5)
     cv.group = "A5"
-    cv.setTitle("QFS - Cartas de aeropuerto: ADC, datos AD 2, SID e IAC")
-    cv.setAuthor("QFS")
+    cv.setTitle("AFS - Cartas de aeropuerto: ADC, datos AD 2, SID e IAC")
+    cv.setAuthor("AFS")
     total = 0
     for L in C.APTS:
         P = des.design(L)

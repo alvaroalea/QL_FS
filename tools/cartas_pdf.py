@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""cartas_pdf.py - paso 2: agrupa las cartas SVG en los PDF de doc/ y monta doc/QFS.pdf.
+"""cartas_pdf.py - paso 2: agrupa las cartas SVG en los PDF de doc/ y monta doc/AFS.pdf.
 
 Uso: cartas_pdf.py [doc]            (por omision doc)
 Para cada pagina de doc/svg/paginas.json se coge doc/svg-manual/<nombre>.svg si existe (retoques a mano) y si no doc/svg/<nombre>.svg.
 Cada SVG se pasa a PDF con Inkscape (en build/cartas_pdf, solo si el SVG es mas nuevo que su PDF) y se unen con pdfunite:
-  doc/QFS_Carta_Ruta_A3.pdf  doc/QFS_Aeropuertos_A5.pdf  doc/QFS_Cartas_Visuales_A4.pdf
-  doc/QFS.pdf = manual (QFS_Manual_A5.pdf) + cartas visuales A4 + aeropuertos A5 + carta de ruta A3
+  doc/AFS_Carta_Ruta_A3.pdf  doc/AFS_Aeropuertos_A5.pdf  doc/AFS_Cartas_Visuales_A4.pdf
+  doc/AFS.pdf = manual (AFS_Manual_A5.pdf) + cartas visuales A4 + aeropuertos A5 + carta de ruta A3
 """
 import json, os, subprocess, sys
 
@@ -39,7 +39,7 @@ if todo:
     missing = [o for s, o in todo if not os.path.exists(o)]
     if missing:
         sys.exit("Inkscape no genero: " + ", ".join(missing))
-OUT = {"A3": "QFS_Carta_Ruta_A3.pdf", "A5": "QFS_Aeropuertos_A5.pdf", "A4": "QFS_Cartas_Visuales_A4.pdf"}
+OUT = {"A3": "AFS_Carta_Ruta_A3.pdf", "A5": "AFS_Aeropuertos_A5.pdf", "A4": "AFS_Cartas_Visuales_A4.pdf"}
 for group, fn in OUT.items():
     files = [r[2] for r in res if r[0] == group]
     if len(files) == 1:
@@ -50,8 +50,8 @@ for group, fn in OUT.items():
 used = [r[1] for r in res if r[3] == "svg-manual"]
 if used:
     print("retocadas a mano (doc/svg-manual):", ", ".join(used))
-manual = os.path.join(doc, "QFS_Manual_A5.pdf")
+manual = os.path.join(doc, "AFS_Manual_A5.pdf")
 parts = [manual] if os.path.exists(manual) else []
 parts += [os.path.join(doc, OUT[g]) for g in ("A4", "A5", "A3")]
-subprocess.run(["pdfunite"] + parts + [os.path.join(doc, "QFS.pdf")], check=True)
-print("doc/QFS.pdf: " + " + ".join(os.path.basename(p) for p in parts))
+subprocess.run(["pdfunite"] + parts + [os.path.join(doc, "AFS.pdf")], check=True)
+print("doc/AFS.pdf: " + " + ".join(os.path.basename(p) for p in parts))

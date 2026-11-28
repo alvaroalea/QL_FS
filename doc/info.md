@@ -1,4 +1,4 @@
-# QFS – Simulador de vuelo para Sinclair QL
+# AFS – Simulador de vuelo para Sinclair QL
 
 Simulador de vuelo para el Sinclair QL (68008, 640 KB, modo 4 512x256, QSound con PSG), inspirado en
 Microsoft Flight Simulator 1.0 (1982). C89 para c68/XTC68 (`qcc`) y ensamblador as68 en las partes críticas.
@@ -56,12 +56,12 @@ make build/qfs               # solo el ejecutable QDOS
 make -f Makefile.pc          # PC: tablas, escenario, aviones, pruebas y capturas PNG
 make -f Makefile.pc ESCALA=1.0   # Iberia a tamaño real (por defecto 0.5)
 make -f Makefile.pc cartas-svg   # cartas en 2 pasos. Paso 1: PDF en build/cartas y un SVG por carta en doc/svg
-make -f Makefile.pc cartas-pdf   # paso 2: agrupa los SVG en doc/QFS_*.pdf y monta doc/QFS.pdf (manual + A4 + A5 + A3);
+make -f Makefile.pc cartas-pdf   # paso 2: agrupa los SVG en doc/AFS_*.pdf y monta doc/AFS.pdf (manual + A4 + A5 + A3);
                                  #   si existe doc/svg-manual/<carta>.svg (retoque a mano) se usa en lugar del de doc/svg
 make -f Makefile.pc cartas       # los dos pasos (necesita reportlab, shapely, poppler e inkscape:
                                  #   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
 make -f Makefile.pc disco    # build/disco: demo_scn, iberia_scn, mono_acf, ...
-make -f Makefile.pc libro    # manual de instrucciones A5: doc/QFS_Manual_A5.pdf (pandoc + XeLaTeX)
+make -f Makefile.pc libro    # manual de instrucciones A5: doc/AFS_Manual_A5.pdf (pandoc + XeLaTeX)
 # en el QL: arrancar el .img/.win (boot fija D$ y lanza EXEC_W <unidad>_qfs)
 ```
 

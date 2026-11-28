@@ -1,5 +1,5 @@
 /* qfs_en.h - main menu texts (English). Same names as qfs_es.h. */
-#define S_MENU_TITLE    "QFS - FLIGHT SIMULATOR FOR THE SINCLAIR QL"
+#define S_MENU_TITLE    "AFS - FLIGHT SIMULATOR FOR THE SINCLAIR QL"
 #define S_MENU_RULE     "==========================================="
 #define S_AC1           "1  GLIDER (NO ENGINE)"
 #define S_AC2           "2  SINGLE 160 HP, FIXED PITCH"

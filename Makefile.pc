@@ -1,4 +1,4 @@
-# QFS - Makefile.pc: PC: datos, pruebas y capturas (no genera el binario del QL)
+# AFS - Makefile.pc: PC: datos, pruebas y capturas (no genera el binario del QL)
 #   make -f Makefile.pc datos     -> tablas, escenario de demo y aviones
 #   make -f Makefile.pc prueba    -> compila y ejecuta las pruebas de fisica/navegacion/render
 #   make -f Makefile.pc capturas  -> pasa las capturas de pantalla QL a PNG
@@ -63,10 +63,10 @@ prueba: datos build/hosttest build/iberiatest build/figuras
 
 # cartas aeronauticas del escenario iberico, en dos pasos:
 #   make -f Makefile.pc cartas-svg   paso 1: genera los PDF en build/cartas y los trocea en un SVG por carta en doc/svg
-#   make -f Makefile.pc cartas-pdf   paso 2: agrupa los SVG en doc/QFS_*.pdf y monta doc/QFS.pdf (manual + A4 + A5 + A3).
+#   make -f Makefile.pc cartas-pdf   paso 2: agrupa los SVG en doc/AFS_*.pdf y monta doc/AFS.pdf (manual + A4 + A5 + A3).
 #                                    Si existe doc/svg-manual/<carta>.svg se usa en lugar de doc/svg/<carta>.svg (retoques a mano)
-#   make -f Makefile.pc cartas       los dos pasos (haz antes `libro` para que QFS.pdf lleve el manual)
-#   make -f Makefile.pc pdf          todo en orden: manual A5 (libro) + cartas (cartas-svg, cartas-pdf) -> doc/QFS.pdf completo
+#   make -f Makefile.pc cartas       los dos pasos (haz antes `libro` para que AFS.pdf lleve el manual)
+#   make -f Makefile.pc pdf          todo en orden: manual A5 (libro) + cartas (cartas-svg, cartas-pdf) -> doc/AFS.pdf completo
 cartas-svg: build/iberia.scn tools/cartas.py tools/cartas_a5.py tools/procdesign.py tools/cartas_svg.py
 	$(PY) tools/cartas.py $(ESCALA) build/cartas
 	$(PY) tools/cartas_svg.py build/cartas doc/svg
@@ -76,11 +76,11 @@ cartas-pdf:
 
 cartas: cartas-svg cartas-pdf
 
-# manual de instrucciones A5 (doc/QFS_Manual_A5.pdf): pandoc + XeLaTeX, ver tools/libro.sh
+# manual de instrucciones A5 (doc/AFS_Manual_A5.pdf): pandoc + XeLaTeX, ver tools/libro.sh
 libro: doc/libro/manual.md tools/libro.sh
 	./tools/libro.sh
 
-# doc/QFS.pdf completo (manual + cartas A4 + aeropuertos A5 + ruta A3), con el manual regenerado antes que las cartas.
+# doc/AFS.pdf completo (manual + cartas A4 + aeropuertos A5 + ruta A3), con el manual regenerado antes que las cartas.
 # Se llama a make dos veces para que el orden se respete tambien con -j
 pdf:
 	$(MAKE) -f Makefile.pc libro

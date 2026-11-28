@@ -1,6 +1,6 @@
 # Primeros pasos {#cap-inicio}
 
-Alea's Flight Simulator (QFS) es un simulador de vuelo para el Sinclair QL. Pone cuatro aviones a tu disposición (un planeador, un monomotor, un bimotor y un reactor ejecutivo) y dos escenarios: un pequeño valle de pruebas y la Península Ibérica con sus catorce aeropuertos principales, radioayudas, ciudades y montañas.
+Alea's Flight Simulator (AFS) es un simulador de vuelo para el Sinclair QL. Pone cuatro aviones a tu disposición (un planeador, un monomotor, un bimotor y un reactor ejecutivo) y dos escenarios: un pequeño valle de pruebas y la Península Ibérica con sus catorce aeropuertos principales, radioayudas, ciudades y montañas.
 
 Este capítulo explica lo mínimo para ponerlo en marcha. Los siguientes cuentan los menús, los aviones y cómo se vuela; al final del libro, en el anexo, tienes las listas de comprobación de cada avión.
 
@@ -56,7 +56,7 @@ En sQLux basta con añadir al fichero de configuración una línea como `DEVICE 
 El juego busca sus datos en la unidad que indica la variable `D$` del fichero `boot`. Si copias los ficheros a otra unidad (`flp2_`, `ram1_`, `win2_`...), edita el `boot` con las mismas dos líneas cambiadas:
 
 ```
-100 REMark QFS - simulador de vuelo
+100 REMark AFS - simulador de vuelo
 110 D$ = "flp1_"
 120 MODE 4
 130 EXEC_W flp1_qfs

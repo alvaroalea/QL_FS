@@ -5,7 +5,7 @@ So, with the help of AI, I have tried to solve all these problems. It is a progr
 
 Anyway, the result is a flight simulator with a quite complete Iberian Peninsula, capable of VFR and IFR flight, with weather conditions, ATC, several aircraft models... and a complete manual of almost 200 pages with checklists, all the flight charts, route maps, SID, approaches... etc. to make flying on a QL as close to the real thing as possible.
 
-Alea's Flight Simulator (QFS) in a nutshell:
+Alea's Flight Simulator (AFS) in a nutshell:
 
 - Inspired by Microsoft Flight Simulator 1.0 from 1982: instrument cockpit, 3D exterior view and top-down map.
 - Written in C (c68/XTC68) with 68000 assembler in the critical parts.
@@ -21,5 +21,5 @@ Requirements: QL with 640 KB, 720 KB floppy or win1_ disk (the scenery takes 450
 
 Warning: the program was written by an AI, so there may be bugs. It is not based on real life and, of course, it will not teach you to fly.
 
-Source code, documentation and screenshots: https://github.com/alvaroalea/QL_FS
-Download (floppy image, win1_ disk and PDF manual): https://github.com/alvaroalea/QL_FS/releases
+Source code, documentation and screenshots: https://github.com/alvaroalea/ALEA_FS
+Download (floppy image, win1_ disk and PDF manual): https://github.com/alvaroalea/ALEA_FS/releases
