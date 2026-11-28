@@ -506,6 +506,10 @@ static int build_status(void)
         u_cat(sim.status, "  FLAPS ", 84);
         u_catn(sim.status, sim.ac.flap_deg[f->flaps], 1, ' ', 84);
     }
+    if (sim.zoom != 256) {                                    /* zoom de la vista distinto del normal: ZOOM x2, x4, x8 o x1/2 */
+        u_cat(sim.status, "  ZOOM x", 84);
+        if (sim.zoom > 256) u_catn(sim.status, sim.zoom >> 8, 1, ' ', 84); else u_cat(sim.status, "1/2", 84);
+    }
     return warn;
 }
 

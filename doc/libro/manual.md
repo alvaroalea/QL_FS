@@ -17,12 +17,12 @@ Este capítulo explica lo mínimo para ponerlo en marcha. Los siguientes cuentan
 
 ## Qué contiene el disco
 
-El juego se entrega en dos imágenes con el mismo contenido: `qfs.img` (disquete de 720 KB) y `qfs.win` (disco duro de 4 MB).
+El juego se entrega en dos imágenes con el mismo contenido: `afs.img` (disquete de 720 KB) y `afs.win` (disco duro de 4 MB).
 
 | Fichero | Contenido |
 |:-----------|:---------------------------------------------|
 | `boot` | Programa de arranque en SuperBASIC (4 líneas). |
-| `qfs` | El simulador (ejecutable, 67 KB). |
+| `afs` | El simulador (ejecutable, 102 KB). |
 | `iberia_scn` | Escenario Península Ibérica (450 KB). |
 | `demo_scn` | Escenario de prueba «Valle del QL» (19 KB). |
 | `planeador_acf`, `mono_acf`, `bimotor_acf`, `reactor_acf` | Los cuatro aviones. Son ficheros de texto que se pueden editar. |
@@ -43,13 +43,13 @@ El programa pone el QL en modo 4, carga el simulador y muestra el menú. La carg
 
 ## Cargarlo desde disco duro o QXL.WIN
 
-Con la imagen `qfs.win` montada como `win1_` (por ejemplo, en un emulador, o copiada a un disco duro), escribe:
+Con la imagen `afs.win` montada como `win1_` (por ejemplo, en un emulador, o copiada a un disco duro), escribe:
 
 ```
 LRUN win1_boot
 ```
 
-En sQLux basta con añadir al fichero de configuración una línea como `DEVICE = WIN1,/ruta/qfs.win,qdos-native`.
+En sQLux basta con añadir al fichero de configuración una línea como `DEVICE = WIN1,/ruta/afs.win,qdos-native`.
 
 ## Cargarlo desde otra unidad
 
@@ -59,7 +59,7 @@ El juego busca sus datos en la unidad que indica la variable `D$` del fichero `b
 100 REMark AFS - simulador de vuelo
 110 D$ = "flp1_"
 120 MODE 4
-130 EXEC_W flp1_qfs
+130 EXEC_W flp1_afs
 ```
 
 Cambia `flp1_` por tu unidad en las líneas 110 y 130.
@@ -383,7 +383,7 @@ El teclado se lee a la vez: puedes pulsar varias teclas simultáneamente (por ej
 | **V** | Cambia de vista: cabina, persecución, torre, lateral. |
 | **5** / **4** / **6** / **8** | En cabina, mirar al frente / izquierda / derecha / atrás. |
 | **7** / **9** | En cabina, mirar hacia arriba / abajo (35° por pulsación, hasta 70° arriba y 35° abajo; **5** vuelve al frente). |
-| **=** / **−** | Zoom: acerca / aleja la cámara. |
+| **=** / **−** | Zoom: acerca / aleja la cámara (la línea de estado muestra `ZOOM x2`, `x4`, `x8` o `x1/2` mientras no sea el normal). |
 
 ### Radios y navegación
 

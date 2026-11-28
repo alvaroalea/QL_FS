@@ -2,9 +2,9 @@ build/*
 build/boot_*
 build/disco
 build/*.o
-build/qfs
-build/qfs.img
-build/qfs.win
+build/afs
+build/afs.img
+build/afs.win
 build/test
 src/*.o
 tmp/

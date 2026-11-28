@@ -72,7 +72,7 @@ The whole scenery (airports in yellow, VOR and NDB, motorways and mountain range
 ## Getting started
 
 ```
-make                         # full QL build -> build/qfs.img (floppy) and build/qfs.win (hard disk)
+make                         # full QL build -> build/afs.img (floppy) and build/afs.win (hard disk)
 make -f Makefile.pc          # PC: tables, scenery, aircraft, tests and screenshots
 make -f Makefile.pc libro    # A5 manual in doc/AFS_Manual_A5.pdf
 make -f Makefile.pc cartas   # charts in doc/AFS_*.pdf
@@ -81,7 +81,7 @@ make -f Makefile.pc pdf-en   # English edition of the manual and charts in doc/e
 ```
 
 On the QL, boot the image (`LRUN flp1_boot` or `LRUN win1_boot`). In sQLux it is enough to add a line
-`DEVICE = WIN1,/path/qfs.win,qdos-native` to its configuration.
+`DEVICE = WIN1,/path/afs.win,qdos-native` to its configuration.
 
 ## More information
 

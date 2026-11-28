@@ -73,7 +73,7 @@ El escenario completo (aeropuertos en amarillo, VOR y NDB, autovías y cadenas m
 ## Cómo empezar
 
 ```
-make                         # QL completo -> build/qfs.img (disquete) y build/qfs.win (disco duro)
+make                         # QL completo -> build/afs.img (disquete) y build/afs.win (disco duro)
 make -f Makefile.pc          # PC: tablas, escenario, aviones, pruebas y capturas
 make -f Makefile.pc libro    # manual A5 en doc/AFS_Manual_A5.pdf
 make -f Makefile.pc cartas   # cartas en doc/AFS_*.pdf
@@ -82,7 +82,7 @@ make -f Makefile.pc pdf-en   # edición inglesa del manual y las cartas en doc/e
 ```
 
 En el QL, arranca la imagen (`LRUN flp1_boot` o `LRUN win1_boot`). En sQLux basta con una línea
-`DEVICE = WIN1,/ruta/qfs.win,qdos-native` en su configuración.
+`DEVICE = WIN1,/ruta/afs.win,qdos-native` en su configuración.
 
 ## Más información
 

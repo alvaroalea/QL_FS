@@ -17,12 +17,12 @@ This chapter explains the bare minimum to get it running. The following ones des
 
 ## What is on the disk
 
-The game comes as two images with the same contents: `qfs.img` (720 KB floppy) and `qfs.win` (4 MB hard disk).
+The game comes as two images with the same contents: `afs.img` (720 KB floppy) and `afs.win` (4 MB hard disk).
 
 | File | Contents |
 |:-----------|:---------------------------------------------|
 | `boot` | SuperBASIC start-up program (4 lines). |
-| `qfs` | The simulator (executable, 67 KB). |
+| `afs` | The simulator (executable, 102 KB). |
 | `iberia_scn` | Iberian Peninsula scenery (450 KB). |
 | `demo_scn` | "QL Valley" test scenery (19 KB). |
 | `planeador_acf`, `mono_acf`, `bimotor_acf`, `reactor_acf` | The four aircraft (glider, single, twin, jet). They are text files that can be edited. |
@@ -43,13 +43,13 @@ The program sets the QL to mode 4, loads the simulator and shows the menu. Loadi
 
 ## Loading from hard disk or QXL.WIN
 
-With the `qfs.win` image mounted as `win1_` (for example in an emulator, or copied to a hard disk), type:
+With the `afs.win` image mounted as `win1_` (for example in an emulator, or copied to a hard disk), type:
 
 ```
 LRUN win1_boot
 ```
 
-In sQLux you only need to add a line like `DEVICE = WIN1,/path/qfs.win,qdos-native` to the configuration file.
+In sQLux you only need to add a line like `DEVICE = WIN1,/path/afs.win,qdos-native` to the configuration file.
 
 ## Loading from another drive
 
@@ -59,7 +59,7 @@ The game looks for its data on the drive given by the `D$` variable in the `boot
 100 REMark AFS - flight simulator
 110 D$ = "flp1_"
 120 MODE 4
-130 EXEC_W flp1_qfs
+130 EXEC_W flp1_afs
 ```
 
 Replace `flp1_` with your drive in lines 110 and 130.
@@ -387,7 +387,7 @@ The keyboard is read all at once: you can press several keys simultaneously (for
 | **V** | Changes view: cockpit, chase, tower, side. |
 | **5** / **4** / **6** / **8** | In the cockpit, look ahead / left / right / behind. |
 | **7** / **9** | In the cockpit, look up / down (35° per press, up to 70° up and 35° down; **5** goes back to ahead). |
-| **=** / **−** | Zoom: camera closer / farther. |
+| **=** / **−** | Zoom: camera closer / farther (the status line shows `ZOOM x2`, `x4`, `x8` or `x1/2` while it is not the normal one). |
 
 ### Radios and navigation
 

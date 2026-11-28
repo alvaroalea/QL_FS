@@ -242,8 +242,6 @@ void view_stars(Surface *s, const Camera *c)
                 sx = (int)p[0]; sy = (int)p[1];
                 if (sx < s->cx0 || sx > s->cx1 || sy < s->cy0 || sy > s->cy1) continue;
                 col = (star_f[n] & 1) ? C_RED : C_WHITE;
-                if (c->light == LIGHT_DUSK)                                    /* sobre el cielo rojo punteado: fondo negro para que se vea */
-                    gfx_rect(s, sx - 1, sy - 1, sx + 2, sy + 2, fill_tab[F_BLACK]);
                 if (star_m[n] <= 20) {                                         /* magnitud <= 1: 2x2 */
                     gfx_pixel(s, sx, sy, col); gfx_pixel(s, sx + 1, sy, col);
                     gfx_pixel(s, sx, sy + 1, col); gfx_pixel(s, sx + 1, sy + 1, col);

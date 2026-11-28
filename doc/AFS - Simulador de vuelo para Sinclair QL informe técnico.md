@@ -353,7 +353,7 @@ Cómo seguir con el código:
 
 1. `make` en el PC: genera tablas, escenario y aviones, ejecuta las pruebas y deja las capturas en `build/shots`.
 2. `make disco`: deja en `build/disco` los ficheros con nombre QDOS (`demo_scn`, `mono_acf`...).
-3. `make SOLO_C=1` y luego sin `SOLO_C`: ejecutable `build/qfs`.
-4. En el QL: `EXEC flp1_qfs` (o `EX flp1_qfs;"win1_"` si los datos están en otro dispositivo).
+3. `make SOLO_C=1` y luego sin `SOLO_C`: ejecutable `build/afs`.
+4. En el QL: `EXEC flp1_afs` (o `EX flp1_afs;"win1_"` si los datos están en otro dispositivo).
 
 El estado de cada paso y lo que falta por verificar en el QL está en `Proyecto.md`.

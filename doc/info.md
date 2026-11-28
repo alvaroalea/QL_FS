@@ -27,7 +27,7 @@ Microsoft Flight Simulator 1.0 (1982). C89 para c68/XTC68 (`qcc`) y ensamblador 
       ILS (si lo hay) y VOR/DME para cada cabecera, con 4 IAF a 16 DME, espera, frustrada, MSA por sectores,
       perfil, mínimos A-D y tabla de régimen de descenso. Rutas elegidas para librar relieve y ciudades.
       Corredores libres de montañas ampliados (2,2 km, 12 NM) en las finales.
-- [x] Compila con `qcc` y genera `build/qfs.img` y `build/qfs.win` (probado en sQLux con el `.win`).
+- [x] Compila con `qcc` y genera `build/afs.img` y `build/afs.win` (probado en sQLux con el `.win`).
 - [ ] Validar en QL real / sQLux (lista de abajo).
 
 ## Estructura
@@ -42,17 +42,17 @@ data/       demo.txt, iberia.txt (escenarios fuente)  planeador/mono/bimotor/rea
             planeador/mono/bimotor/reactor.src (fondo del panel de cada avion: volcado crudo de las filas 98 a 255 (20 KB); lo genera tools/mkpanel.c)
 tests/      hosttest.c iberiatest.c
 doc/libro/  manual.md (fuente del libro), metadata.yaml, header.tex, cover.tex, aviso.lua, img/
-Makefile    QL con qcc (por defecto: build/qfs.img y build/qfs.win)
+Makefile    QL con qcc (por defecto: build/afs.img y build/afs.win)
 Makefile.pc PC: datos, pruebas, capturas, disco (nombres QDOS en build/disco)
 ```
 
 ## Uso
 
 ```
-make                         # QL completo -> build/qfs.img y build/qfs.win
+make                         # QL completo -> build/afs.img y build/afs.win
 make SOLO_C=1                # QL sin rutinas gráficas en ensamblador
 make SCHED=0                 # QL con el bucle de siempre (por omisión SCHED=1: física en la interrupción de 50 Hz y el resto por turnos, doc/optimizacion.md, «Planificador por turnos»; `make clean` al cambiar)
-make build/qfs               # solo el ejecutable QDOS
+make build/afs               # solo el ejecutable QDOS
 make -f Makefile.pc          # PC: tablas, escenario, aviones, pruebas y capturas PNG
 make -f Makefile.pc ESCALA=1.0   # Iberia a tamaño real (por defecto 0.5)
 make -f Makefile.pc cartas-svg   # cartas en 2 pasos. Paso 1: PDF en build/cartas y un SVG por carta en doc/svg
