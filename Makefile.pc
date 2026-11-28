@@ -8,6 +8,8 @@
 PY      = $(shell test -x .venv/bin/python && echo .venv/bin/python || echo python3)
 CC      = gcc
 CFLAGS  = -std=c89 -pedantic -Wall -Wextra -Wno-unused-parameter -DHOST -O1 -g
+QLANG   ?=
+CFLAGS += $(if $(filter-out es,$(QLANG)),-DQFS_LANG=_$(QLANG))
 
 PANELES = data/planeador.src data/mono.src data/bimotor.src data/reactor.src   # fondo del panel de cada avion (volcado de pantalla)
 

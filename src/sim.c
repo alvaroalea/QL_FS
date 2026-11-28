@@ -5,6 +5,8 @@
 #include "sound.h"
 #include "util.h"
 #include "qfs_prof.h"
+#include "lang.h"
+#include QFS_TEXTS(qfs)
 #include <string.h>
 #include <stdio.h>
 
@@ -884,11 +886,10 @@ static void menu_open(const char *name)
 int sim_menu(char *acf, char *scn, int *hour)
 {
     static const char *names[4] = { "planeador.acf", "mono.acf", "bimotor.acf", "reactor.acf" };
-    static const char *desc[4] = { "1  PLANEADOR (SIN MOTOR)", "2  MONOMOTOR 160 HP, PASO FIJO",
-                                   "3  BIMOTOR 2x300 HP, PASO VARIABLE", "4  REACTOR BIMOTOR" };
+    static const char *desc[4] = { S_AC1, S_AC2, S_AC3, S_AC4 };
     static const char *scns[2] = { "demo.scn", "iberia.scn" };
-    static const char *scnd[2] = { "E  ESCENARIO: VALLE DEL QL (DEMO)", "E  ESCENARIO: PENINSULA IBERICA" };
-    static const char *ptd[LAND_PTS] = { "A 20 NM", "IF 10 NM", "FAF 5 NM", "EN CORTA FINAL" };
+    static const char *scnd[2] = { S_SCN1, S_SCN2 };
+    static const char *ptd[LAND_PTS] = { S_PT1, S_PT2, S_PT3, S_PT4 };
     static const int ord[5] = { START_CONT, START_RWY, START_RAMP, START_AIR, START_LAND };   /* orden de la tecla S */
     static int esc = 1, apt = 0, mode = START_RWY, rwy = 0, pt = 0, sel = 1;   /* se recuerdan al volver al menu */
     const char *msg = "";
@@ -929,12 +930,12 @@ int sim_menu(char *acf, char *scn, int *hour)
             else if (++pt >= LAND_PTS) { pt = 0; rwy = (rwy + 1) % n; }
         }
         if (hit(KEY_G)) {
-            msg = !sim_snap_ok ? "NO HAY VUELO QUE GUARDAR" : (snap_save() ? "PARTIDA GUARDADA" : "NO SE PUDO GUARDAR LA PARTIDA");
+            msg = !sim_snap_ok ? S_NO_FLIGHT : (snap_save() ? S_SAVED : S_SAVE_FAIL);
             dirty = 1;
         }
         if (hit(KEY_L)) {
             if (snap_load()) { sel = sim_snap.sel; esc = sim_snap.esc; mode = START_CONT; done = 1; menu_open(scns[esc]); }
-            else { msg = "NO SE PUDO CARGAR LA PARTIDA"; dirty = 1; }
+            else { msg = S_LOAD_FAIL; dirty = 1; }
         }
         if (hit(KEY_ENTER)) done = 1;
         if (hit(KEY_ESC)) { world_close(&mw); return 0; }
@@ -942,38 +943,38 @@ int sim_menu(char *acf, char *scn, int *hour)
         if (!dirty) { plat_frame(); continue; }     /* solo se redibuja al cambiar algo (sin parpadeo en el QL) */
         dirty = 0;
         gfx_clear(&s, fill_tab[F_BLACK]);
-        gfx_text(&s, 150, 20, "QFS - SIMULADOR DE VUELO PARA SINCLAIR QL", C_WHITE);
-        gfx_text(&s, 150, 30, "=========================================", C_RED);
+        gfx_text(&s, 150, 20, S_MENU_TITLE, C_WHITE);
+        gfx_text(&s, 150, 30, S_MENU_RULE, C_RED);
         for (i = 0; i < 4; i++) gfx_text(&s, 150, 60 + i * 12, desc[i], i == sel ? C_GREEN : C_WHITE);
-        u_cpy(b, "T  HORA DE SALIDA: ", 40); u_catn(b, *hour, 2, '0', 40); u_cat(b, ":00", 40);
+        u_cpy(b, S_HOUR, 40); u_catn(b, *hour, 2, '0', 40); u_cat(b, ":00", 40);
         gfx_text(&s, 150, 120, b, C_WHITE);
         gfx_text(&s, 150, 132, scnd[esc], C_WHITE);
         if (mode != START_AIR && mode != START_CONT) {
-            u_cpy(b, "A  AEROPUERTO: ", 64);
+            u_cpy(b, S_AIRPORT, 64);
             if (mw.napt > 0) { u_cat(b, mw.apt[apt].ident, 64); u_cat(b, " ", 64); u_cat(b, mw.apt[apt].name, 64); }
             else u_cat(b, "---", 64);
             gfx_text(&s, 150, 144, b, C_WHITE);
         }
-        gfx_text(&s, 150, 156, mode == START_CONT ? "S  SALIDA: CONTINUAR VUELO" :
-                               mode == START_AIR ? "S  SALIDA: EN VUELO (33% DEL TECHO)" :
-                               mode == START_LAND ? "S  SALIDA: ATERRIZANDO" :
-                               (mode == START_RAMP ? "S  SALIDA: EN PLATAFORMA" : "S  SALIDA: EN PISTA"), C_WHITE);
+        gfx_text(&s, 150, 156, mode == START_CONT ? S_START_CONT :
+                               mode == START_AIR ? S_START_AIR :
+                               mode == START_LAND ? S_START_LAND :
+                               (mode == START_RAMP ? S_START_RAMP : S_START_RWY), C_WHITE);
         if ((mode == START_RWY || mode == START_LAND) && n > 0) {
             const Runway *r = &mw.apt[apt].rwy[rwy];
             int deg = (int)((((s32)r->hdg * 360L + 32768L) >> 16) % 360), num = (deg + 5) / 10 % 36;
-            u_cpy(b, mode == START_LAND ? "D  FINAL: " : "D  PISTA: ", 64);
-            if (mode == START_LAND) { u_cat(b, ptd[pt], 64); u_cat(b, " PISTA ", 64); }
+            u_cpy(b, mode == START_LAND ? S_FINAL : S_RUNWAY, 64);
+            if (mode == START_LAND) { u_cat(b, ptd[pt], 64); u_cat(b, S_RWY_WORD, 64); }
             u_catn(b, num ? num : 36, 2, '0', 64);
-            u_cat(b, " RUMBO ", 64); u_catn(b, deg, 3, '0', 64);
-            if (mode == START_RWY) { u_cat(b, "  ", 64); u_catn(b, r->len, 4, ' ', 64); u_cat(b, " M", 64); }
+            u_cat(b, S_HDG_WORD, 64); u_catn(b, deg, 3, '0', 64);
+            if (mode == START_RWY) { u_cat(b, "  ", 64); u_catn(b, r->len, 4, ' ', 64); u_cat(b, S_METRES, 64); }
             gfx_text(&s, 150, 168, b, C_WHITE);
         }
-        gfx_text(&s, 150, 186, "G  GUARDAR PARTIDA", sim_snap_ok ? C_WHITE : C_RED);
-        gfx_text(&s, 150, 198, "L  CARGAR PARTIDA", C_WHITE);
-        gfx_text(&s, 150, 216, "ENTER = VOLAR     ESC = SALIR", C_GREEN);
-        gfx_text(&s, 150, 228, "EN VUELO: R = SIGUIENTE AEROPUERTO", C_RED);
+        gfx_text(&s, 150, 186, S_SAVE, sim_snap_ok ? C_WHITE : C_RED);
+        gfx_text(&s, 150, 198, S_LOAD, C_WHITE);
+        gfx_text(&s, 150, 216, S_GO, C_GREEN);
+        gfx_text(&s, 150, 228, S_NEXT_APT, C_RED);
         if (msg[0]) gfx_text(&s, 150, 242, msg, C_GREEN);
-        if (plat_low_warn()) gfx_text(&s, 150, 249, "AVISO: PROGRAMA EN RAM LENTA (CONTENIDA)", C_RED);
+        if (plat_low_warn()) gfx_text(&s, 150, 249, S_SLOW_RAM, C_RED);
         plat_frame();
     }
     world_close(&mw);

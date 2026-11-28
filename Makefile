@@ -24,7 +24,14 @@ SCHED ?= 1
 ifeq ($(SCHED),1)
 ASMDEFS += -DUSE_SCHED
 endif
-CFLAGS  = -O -Isrc -DPLAT_QL $(ASMDEFS)
+# idioma de los textos del menu (src/lang.h): make QLANG=en  (por omision espanol). Si cambia, se recompila el codigo que usa los textos
+QLANG    ?=
+QLANGDEF := $(if $(filter-out es,$(QLANG)),-DQFS_LANG=_$(QLANG))
+$(shell if [ "$$(cat build/.lang 2>/dev/null)" != "$(QLANG)" ]; then mkdir -p build; rm -f src/sim.o; echo "$(QLANG)" > build/.lang; fi)
+CFLAGS  = -O -Isrc -DPLAT_QL $(ASMDEFS) $(QLANGDEF)
+
+lang-check:
+	@sh tools/lang_check.sh $(or $(QLANG),en)
 
 SRC     = src/main_ql.c src/sim.c src/fixmath.c src/tables.c src/gfx.c \
           src/world.c src/view3d.c src/aircraft.c src/flight.c src/nav.c \
