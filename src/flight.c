@@ -243,7 +243,7 @@ void flight_step(Flight *f, World *w)
     asym = f->asym;
     if (!f->auto_coord) dpsi += fxmul(fxmul(f->rud, FXF(15, 100)), MIN(vr, FX_ONE));
     dpsi += fxdiv(asym, vc);
-    f->slip = CLAMP((f->auto_coord ? 0 : f->rud) - fxmul(asym, FXF(1, 2)), -FX_ONE, FX_ONE);
+    f->slip = CLAMP((f->auto_coord ? 0 : f->rud) + fxmul(asym, FXF(1, 2)), -FX_ONE, FX_ONE);   /* guinada hacia la derecha > 0 (timon y empuje asimetrico suman) */
 
     if (f->on_ground) {
         s32 mu = f->brakes ? FXF(40, 100) : FXF(2, 100);

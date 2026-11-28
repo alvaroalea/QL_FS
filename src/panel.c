@@ -683,16 +683,16 @@ static void tc_draw(u16 a)
 {
     s32 ca = icos(a), sa = isin(a), x = (ca * 26) >> 14, y = (sa * 17) >> 14;
     int cx = COL1, cy = ROW2 - 2;
-    xline(cx - (int)x, cy + (int)y, cx + (int)x, cy - (int)y, C_WHITE);
-    xline(cx - (int)x, cy + (int)y + 1, cx + (int)x, cy - (int)y + 1, C_WHITE);
-    xline(cx, cy, cx - (int)((sa * 6) >> 14), cy - (int)((ca * 5) >> 14), C_WHITE);
+    xline(cx - (int)x, cy - (int)y, cx + (int)x, cy + (int)y, C_WHITE);      /* giro a la derecha (a > 0): el extremo derecho baja */
+    xline(cx - (int)x, cy - (int)y + 1, cx + (int)x, cy + (int)y + 1, C_WHITE);
+    xline(cx, cy, cx + (int)((sa * 6) >> 14), cy - (int)((ca * 5) >> 14), C_WHITE);
 }
 
 static void draw_tc(const Flight *f)
 {
     s32 bank = CLAMP(fxmul(f->turn, FXI(5)), -FXF(7, 10), FXF(7, 10));   /* 3 g/s -> 15 g */
     u16 a = (u16)(fxmul(bank, RAD2BAM) / 90 * 90);                       /* paso de medio grado */
-    int bx = (int)CLAMP(COL1 + fxmul(f->slip, FXI(10)), COL1 - 12, COL1 + 12);
+    int bx = (int)CLAMP(COL1 - fxmul(f->slip, FXI(10)), COL1 - 12, COL1 + 12);   /* la bola se va al lado contrario de la guinada */
     if ((int)a != s_bank) {
         if (s_bank != NONE) tc_draw((u16)s_bank);
         tc_draw(a);
