@@ -7,6 +7,8 @@
 [![English](https://img.shields.io/badge/Language-English-blue)](README.en.md)
 [![Español](https://img.shields.io/badge/Language-Español-red)](README.md)
 
+> ⚠️ **WARNING:** this program was written by an AI. The human steering, testing and debugging it can't keep up with reviewing everything it generates, so expect bugs (some of them in a party mood). **IMPORTANT:** it is not based on real life; any resemblance to reality is purely coincidental. And no, it won't teach you to fly.
+
 A flight simulator for the **Sinclair QL** (68008 at 7.5 MHz), inspired by the 1982 *Microsoft Flight Simulator 1.0*:
 cockpit with instruments, external 3D view and the **whole Iberian Peninsula** to fly over with four aircraft.
 Written in C89 for c68/XTC68 (`qcc`), with 68000 assembly in the critical parts, and it runs both on a QL with

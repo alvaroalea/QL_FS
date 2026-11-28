@@ -7,6 +7,8 @@
 [![English](https://img.shields.io/badge/Language-English-blue)](README.en.md)
 [![Español](https://img.shields.io/badge/Language-Español-red)](README.md)
 
+> ⚠️ **AVISO:** este programa lo ha escrito una IA. El humano que la dirige, prueba y depura no da abasto para revisar todo lo que genera, así que puede haber bugs (y alguno con ganas de fiesta). **IMPORTANTE:** no está basado en la vida real; cualquier parecido con la realidad es pura coincidencia. Y no, no sirve para aprender a pilotar.
+
 Simulador de vuelo para el **Sinclair QL** (68008 a 7,5 MHz), inspirado en el *Microsoft Flight Simulator 1.0* de 1982:
 cabina con instrumentos, vista exterior en 3D y la **Península Ibérica completa** para recorrerla con cuatro aviones.
 Escrito en C89 para c68/XTC68 (`qcc`), con ensamblador 68000 en las partes críticas, y funciona tanto en un QL con
