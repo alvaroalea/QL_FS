@@ -1130,3 +1130,42 @@ Pregunta: ¿cuánto sube el FPS de la vista si la ventana pasa de 480x96 a 240 o
 | 192x48 | 0,90 | 1,17 | 0,97 | 1,27 | 1,08 | +19 % |
 
 La mejor escena gana un 23 % (cabecera, 192x48) y la peor un 8 % (noche). Muy por debajo del 50 %: el coste lo ponen los vértices (transformar y proyectar, luces), que no dependen del tamaño de la ventana; solo bajan el relleno, el cielo y el volcado. Además la versión con variables cuesta un ~3 % en 480x96 (los descartes de `xform_pre` pasan de desplazamientos a `xp_mul`). No se aplicó: ni menú de opciones ni cambio de tamaño. Para ganar más habría que reducir objetos (alcance, LOD), no píxeles.
+
+## Ronda de transformación y proyección: qué se aplicó, qué no y cuánta memoria queda (28 noviembre 2026)
+
+Medido en sQLux, ×1 (QL), `IPC_ROM = Hermes2_20_rom`, física parada (`PROF_PAUSE=1`), segundos de reloj por volcado estacionario (25 cuadros = 12,5 vistas; media de los volcados 1 y 2).
+Cada cambio se comprobó también con una captura de pantalla del QL emulado (`SHOT=1`): **0 bytes distintos** respecto a la versión anterior en las escenas 0, 1, 3 y 4, y `hosttest` sin ninguna diferencia.
+
+| Cambio | Esc. 0 | Esc. 1 | Esc. 3 (noche) | Esc. 4 | Decisión |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Partida | 10,24 | 6,07 | 7,33 | 6,89 | |
+| 1. Objetos de z constante con 6 productos en vez de 9 (`xform_obj3f`, `Obj.flat`) | 10,10 (−1,4 %) | 6,05 (−0,4 %) | 7,17 (−2,2 %) | 6,87 (−0,2 %) | **aplicado** (resultado idéntico bit a bit) |
+| 2. Sólidos de cajas: 4 vectores y sumas en vez de 8 vértices (`xform_boxes`, formato nuevo de escenario) | 10,10 | 6,05 | 7,17 | 6,87 | descartado: 0 % |
+| 3. Pendientes de las aristas con tabla de recíprocos y un `MULU` en vez de dos `DIVU` | 10,07 | 6,04 | 7,17 | 6,84 | descartado: −0,2 a −0,4 % y cambia píxeles sueltos |
+| 3'. Proyección con 1/z por tabla en vez de dos `DIVS` | — | — | — | — | descartado sin implementar (ver abajo) |
+| 4. Normales por cara y vértices huérfanos | — | — | — | — | no implementado (ver abajo) |
+
+**Por qué las cajas no ganan.** El perfil de la escena 0 dio `xform_obj3` = 0,307 s tras separar el suelo plano; con `xform_boxes` la suma de `xform_boxes` (0,169 s) y de lo que queda en `xform_obj3` (0,138 s) vuelve a ser 0,307 s. La transformación de un vértice
+cuesta del orden de 500-600 ciclos (no los ~1.400 que se suponían: ese número incluía la proyección): `MULS` con operandos pequeños son baratos y los 24 productos, los desplazamientos de cada coordenada y las sumas de una caja
+se comen el ahorro de los 72 productos. La rutina era correcta (200 pruebas aleatorias asm contra C, 0 discrepancias; exacta con U ≤ vshift y a ≤ 1 unidad si no).
+
+**Proyección con 1/z por tabla.** `pj_xy` ya hace un solo `MULS` + `DIVS` por eje. Con tabla habría que normalizar z (sin CLZ en el 68000), buscar 1/z y hacer dos productos (`MULU` + `MULS`) por eje: en ciclos queda igual o mejor solo por ~70 ciclos de ~1.100 por vértice, menos del 1 % de la vista, y con error de píxel. No merece la pena.
+
+**Normales por cara y huérfanos.** Con los costes medidos (transformar + proyectar ≈ 1.100 ciclos por vértice, `poly_fast` ≈ 500-700 por cara) el ahorro de la escena 0 es de ~1-1,5 % (≈ 90 vértices huérfanos y ≈ 170 caras traseras por vista, menos el producto escalar de cada cara) y menos de un 1 % en las escenas 1 y 4, a cambio de un plano por cara
+en el formato, una transformación con máscara de vértices y reescribir `draw_sorted`. No se hace. (La estimación anterior de 2-6 % usaba 1.400 ciclos por vértice.)
+
+**Dónde está el tiempo ahora** (volcado 2, % de la vista): escena 1 y 4: relleno (`gfx_fill_convex` + `fc_hspan`) 16-22 %, ROM/QDOS (teclado) ~9,5 %, `gfx_line_raw` 5-6 %, `gfx_memcpy` (volcado) 5 %, `poly_fast` 4,5 %, `draw_obj` 4,4 %, `gather_tile` 4 %, `xform_pre` 3-4 %.
+De noche (escena 3): `draw_lrow` 17,9 % + `sdiv32` 6,8 % + `pj_xy`/`pj_div` 14 % + `dl_plot` 5,7 %, es decir ~45 % en las filas de luces (tres divisiones de 32 bits por fila y una proyección por luz): es lo único con margen claro. Ninguna de las cuatro ideas lo toca.
+
+### Memoria libre con 640 KB de RAM (QL con 512 KB de expansión)
+
+Medida en sQLux (`RAMTOP = 640`, `-DPROF_MEM`) tras 400 cuadros: **~42 KB libres del montón**, en bloques de 1 KB y sin ningún bloque contiguo de 64 KB, en las escenas 0 y 1. La caché de teselas tenía 28-29 de las 49 con 38 KB; con las 49 llenas y teselas densas
+(la mayor mide 18 KB; el escenario entero, 368 KB de teselas) quedarían entre 0 y ~20 KB. Caben tablas de unos pocos KB (los 0,5 KB de la tabla de recíprocos de arriba), no tablas grandes de multiplicar. El código desenrollado cabe, pero con código en
+RAM contendida (<$40000) o con `self-modifying code` en un Super Gold Card (68020 con caché) hay riesgos, y los desenrollados con tabla de saltos se estiman en ≤ 1 % (no medido).
+
+### ¿Cambiar el motor por `QL_GamesAPI/ql3d`?
+
+No. `ql3d` (carpeta en minúsculas) es un motor de polígonos convexos para naves en modo 8 (256×256, 8 colores): objetos de ≤ 128 vértices con coordenadas `i8`, 32 objetos por escena, sin recorte contra el plano cercano (el objeto que lo cruza se descarta entero), sin polígonos cóncavos
+y con orden del pintor solo entre objetos. QFS necesita lo contrario: miles de objetos por teselas, suelo que cruza el plano cercano (la pista bajo el avión), cóncavos, modo 4 de 512 px y cielo/horizonte. Y en rendimiento no aporta nada: su `xform` cuesta 1,45 k ciclos por vértice **con
+proyección** (medido sin contención) frente a ~1,1 k de QFS (transformar ~550 + proyectar ~600). Sus trucos ya aplicados aquí (descarte por esfera envolvente, relleno de convexos sin tablas de aristas, caras de suelo sin normales) o medidos sin ganancia (recíprocos para las pendientes: −0,2 a −0,4 %,
+matriz en la pila con `(a4)+`: −3,5 % de `xform`, ≈ 0,1 % de la vista).

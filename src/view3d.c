@@ -13,6 +13,7 @@ ViewStats vstats;
 
 #ifdef USE_ASM_XOBJ
 void xform_obj3(const s16 *m, const s16 *v, s32 *out, int cnt, int step, int vshift, int U, int rx, int ry, int rz);
+void xform_obj3f(const s16 *m, const s16 *v, s32 *out, int cnt, int step, int vshift, int U, int rx, int ry, int rz);   /* vertices a la misma z (ql68k.s) */
 int xform_pre(const Camera *c, const Obj *o, s32 dmax, s32 *res);   /* prologo de xform_obj (ql68k.s) */
 #endif
 
@@ -413,6 +414,12 @@ static void xform_obj3(const s16 *m, const s16 *v, s32 *out, int cnt, int step, 
 #endif
 
 /* transforma los vertices de un objeto. Devuelve 0 si no se dibuja. */
+#ifdef USE_ASM_XOBJ
+#define XFORM_OBJ(o, m, out, cnt, step, U, rx, ry, rz) \
+    ((o)->flat ? xform_obj3f(m, (o)->v, out, cnt, step, (o)->vshift, U, rx, ry, rz) : xform_obj3(m, (o)->v, out, cnt, step, (o)->vshift, U, rx, ry, rz))
+#else
+#define XFORM_OBJ(o, m, out, cnt, step, U, rx, ry, rz) xform_obj3(m, (o)->v, out, cnt, step, (o)->vshift, U, rx, ry, rz)
+#endif
 #ifndef USE_ASM_XOBJ
 /* prologo de xform_obj: 0 si el objeto no se dibuja; si no res = { U, rx, ry, rz }. En el QL es xform_pre (ql68k.s); aqui hace lo mismo. */
 static int xform_pre(const Camera *c, const Obj *o, s32 dmax, s32 *res)
@@ -453,7 +460,6 @@ static int xform_obj(const Camera *c, const Obj *o, s32 dmax)
     s32 res[4];
     int U, n = o->nv;
     s16 rx, ry, rz;
-    const s16 *v = o->v;
     if (n > MAXV) n = MAXV;
     if (!xform_pre(c, o, dmax, res)) return 0;
     U = (int)res[0]; rx = (s16)res[1]; ry = (s16)res[2]; rz = (s16)res[3];
@@ -469,7 +475,7 @@ static int xform_obj(const Camera *c, const Obj *o, s32 dmax)
     light_step = 1 << light_shift;
     if (o->type == OBJ_LIGHTS && (o->flags & OF_ROWS)) {
         /* filas de luces: se transforman los extremos de cada fila (2 vertices) y las luces se interpolan al dibujar */
-        xform_obj3(c->m, v, vw, n, 1, o->vshift, U, rx, ry, rz);
+        XFORM_OBJ(o, c->m, vw, n, 1, U, rx, ry, rz);
         near_z = MAX(4 >> U, 1);
         obj_u = U;
         vstats.verts += n;
@@ -478,13 +484,13 @@ static int xform_obj(const Camera *c, const Obj *o, s32 dmax)
     if (o->type == OBJ_LIGHTS) {
         /* solo se transforman las luces que se van a pintar */
         int j = (n + light_step - 1) >> light_shift;
-        xform_obj3(c->m, v, vw, j, light_step, o->vshift, U, rx, ry, rz);
+        XFORM_OBJ(o, c->m, vw, j, light_step, U, rx, ry, rz);
         near_z = MAX(4 >> U, 1);
         obj_u = U;
         vstats.verts += j;
         return j;
     }
-    xform_obj3(c->m, v, vw, n, 1, o->vshift, U, rx, ry, rz);
+    XFORM_OBJ(o, c->m, vw, n, 1, U, rx, ry, rz);
     near_z = 4 >> U;
     if (near_z < 1) near_z = 1;
     obj_u = U;

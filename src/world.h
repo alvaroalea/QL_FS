@@ -48,6 +48,7 @@ typedef struct {
     s16 *v;                         /* nv*3, unidades (1/8 m) << vshift */
     u8  *f;                         /* caras: n, atributo, indices... */
     s32 reach;                      /* radio + alcance de dibujo (m, <<8 ya aplicado): d > reach = no se ve (calculado al cargar) */
+    u8  flat;                       /* 1 si todos los vertices tienen la misma z (suelo, lineas, filas de luces): se transforman con 6 productos en vez de 9 (calculado al cargar) */
 } Obj;
 
 typedef struct {

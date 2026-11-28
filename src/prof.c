@@ -341,6 +341,25 @@ void prof_run(void)
         PROF_MARK(((unsigned long)m >> 16) & 255); PROF_MARK(((unsigned long)m >> 8) & 255);
         free(m);
     }
+#ifdef PROF_MEM                                  /* memoria libre del heap tras calentar: bloques de 1 KB hasta que malloc falle (se liberan) */
+    {
+        void *blk[700]; int nb = 0, b, kb;
+        for (b = 0; b < 400; b++) sim_frame();
+        while (nb < 700 && (blk[nb] = malloc(1024L)) != NULL) nb++;
+        kb = nb;
+        for (b = 0; b < nb; b++) free(blk[b]);
+        PROF_MARK(230); PROF_MARK(kb >> 8); PROF_MARK(kb & 255);
+        {   void *big = malloc(65536L); PROF_MARK(231); PROF_MARK(big != NULL); if (big) free(big); }
+        {   int i, nt = 0; long by = 0;
+            for (i = 0; i < TILE_CACHE; i++) if (sim.w.cache[i].tx >= 0) {
+                nt++; by += sim.w.tdir_size[sim.w.cache[i].ty * sim.w.ntx + sim.w.cache[i].tx] + 2 + (long)sizeof(Obj) * (sim.w.cache[i].nobj + 1); }
+            PROF_MARK(232); PROF_MARK(nt); PROF_MARK(233); PROF_MARK((int)(by >> 8) & 255); PROF_MARK((int)(by >> 16) & 255);
+            { u32 mx = 0, sm = 0; int t2; for (t2 = 0; t2 < sim.w.ntx * sim.w.nty; t2++) { sm += sim.w.tdir_size[t2]; if (sim.w.tdir_size[t2] > mx) mx = sim.w.tdir_size[t2]; }
+              PROF_MARK(234); PROF_MARK((int)(mx >> 8) & 255); PROF_MARK((int)(mx >> 16) & 255); PROF_MARK(235); PROF_MARK((int)(sm >> 8) & 255); PROF_MARK((int)(sm >> 16) & 255); } }
+        PROF_DUMP(98);
+        return;
+    }
+#endif
     PROF_BASE(main);
 #ifdef PROF_SCHED_RUN                           /* el simulador entero con el planificador de interrupciones (-DUSE_SCHED): PROF_SCHED_RUN turnos de 20 ms */
     {

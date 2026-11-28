@@ -166,6 +166,8 @@ static int tile_parse(Tile *t, u8 *blob, u32 size)
         o->v = (s16 *)p;
         if (swap)
             for (k = 0; k < o->nv * 3; k++) o->v[k] = (s16)rd16(p + k * 2);
+        o->flat = 1;                                     /* ¿todos los vertices a la misma z? */
+        for (k = 1; k < o->nv; k++) if (o->v[k * 3 + 2] != o->v[2]) { o->flat = 0; break; }
         {   /* radio de vision: el de arriba solo cuenta la planta, y un edificio alto se descartaba entero al salir su base del campo */
             u32 mx = 0, q;
             s32 r;

@@ -2076,6 +2076,144 @@ xo_chk: dbra    d7,xo_loop
         movem.l (a7)+,d2-d7/a2-a5
         rts
 
+; ---------------------------------------------------------------- xform_obj3f
+; void xform_obj3f(const s16 *m, const s16 *v, s32 *out, int cnt, int step, int vshift, int U, int rx, int ry, int rz)
+;   Lo mismo que xform_obj3 para un objeto cuyos vertices tienen todos la misma z (suelo, lineas, filas de luces: Obj.flat).
+;   La parte de la matriz que multiplica a la posicion relativa y a la z comun es la misma para todos los vertices:
+;       K = m * (rx, ry, rz + sh(z))   (9 productos, una vez por objeto)
+;       out = (K + m[:,0] * sh(x) + m[:,1] * sh(y)) >> 14     (6 productos por vertice en vez de 9)
+;   donde sh(c) = (c << vshift) >> U. Es el mismo resultado que xform_obj3 mientras no se desborde la suma de 16 bits de rel
+;   (el objeto cabe: xform_pre elige U para que |rel| < 32768). Registros: d0 = sx, d1 = sy, d2 = 14, d3/d4 = acumuladores,
+;   d5/d6 = desplazamiento a izquierda / derecha, d7 = contador, a0 = vertices, a1 = salida, a2 = matriz, a3/a4/a5 = K,
+;   a6 = bytes que se saltan tras cada vertice ((step-1)*6).
+        .globl  _xform_obj3f
+_xform_obj3f:
+        movem.l d2-d7/a2-a6,-(a7)       ; 44 bytes
+        move.l  48(a7),a2               ; matriz
+        move.l  52(a7),a0               ; vertices (s16 x3)
+        move.l  56(a7),a1               ; salida (s32 x3)
+        move.l  60(a7),d7               ; cnt
+        subq.l  #1,d7
+        bmi     xg_end
+        move.l  64(a7),d0
+        subq.l  #1,d0
+        mulu    #6,d0
+        movea.l d0,a6                   ; (step - 1) * 6
+        move.l  68(a7),d0               ; vshift
+        sub.l   72(a7),d0               ; vshift - U
+        moveq   #0,d5                   ; a la izquierda
+        moveq   #0,d6                   ; a la derecha
+        tst.l   d0
+        bmi     xg_n
+        move.l  d0,d5
+        bra     xg_s
+xg_n:   neg.l   d0
+        move.l  d0,d6
+xg_s:   move.w  4(a0),d2                ; z comun (la del primer vertice)
+        tst.w   d6
+        bne     xg_zr
+        asl.w   d5,d2
+        bra     xg_z2
+xg_zr:  asr.w   d6,d2
+xg_z2:  add.w   86(a7),d2               ; rz + sh(z)   (rz: 84(a7), palabra baja en 86)
+        move.w  78(a7),d0               ; rx
+        move.w  82(a7),d1               ; ry
+        move.w  0(a2),d3
+        muls    d0,d3
+        move.w  2(a2),d4
+        muls    d1,d4
+        add.l   d4,d3
+        move.w  4(a2),d4
+        muls    d2,d4
+        add.l   d4,d3
+        movea.l d3,a3                   ; K
+        move.w  6(a2),d3
+        muls    d0,d3
+        move.w  8(a2),d4
+        muls    d1,d4
+        add.l   d4,d3
+        move.w  10(a2),d4
+        muls    d2,d4
+        add.l   d4,d3
+        movea.l d3,a4                   ; K
+        move.w  12(a2),d3
+        muls    d0,d3
+        move.w  14(a2),d4
+        muls    d1,d4
+        add.l   d4,d3
+        move.w  16(a2),d4
+        muls    d2,d4
+        add.l   d4,d3
+        movea.l d3,a5                   ; K
+        moveq   #14,d2
+        tst.w   d6
+        bne     xg_lr
+xg_ll:  move.w  (a0)+,d0
+        asl.w   d5,d0
+        move.w  (a0)+,d1
+        asl.w   d5,d1
+        addq.l  #2,a0
+        adda.l  a6,a0
+        move.w  0(a2),d3
+        muls    d0,d3
+        move.w  2(a2),d4
+        muls    d1,d4
+        add.l   d4,d3
+        add.l   a3,d3
+        asr.l   d2,d3
+        move.l  d3,(a1)+
+        move.w  6(a2),d3
+        muls    d0,d3
+        move.w  8(a2),d4
+        muls    d1,d4
+        add.l   d4,d3
+        add.l   a4,d3
+        asr.l   d2,d3
+        move.l  d3,(a1)+
+        move.w  12(a2),d3
+        muls    d0,d3
+        move.w  14(a2),d4
+        muls    d1,d4
+        add.l   d4,d3
+        add.l   a5,d3
+        asr.l   d2,d3
+        move.l  d3,(a1)+
+        dbra    d7,xg_ll
+        bra     xg_end
+xg_lr:  move.w  (a0)+,d0
+        asr.w   d6,d0
+        move.w  (a0)+,d1
+        asr.w   d6,d1
+        addq.l  #2,a0
+        adda.l  a6,a0
+        move.w  0(a2),d3
+        muls    d0,d3
+        move.w  2(a2),d4
+        muls    d1,d4
+        add.l   d4,d3
+        add.l   a3,d3
+        asr.l   d2,d3
+        move.l  d3,(a1)+
+        move.w  6(a2),d3
+        muls    d0,d3
+        move.w  8(a2),d4
+        muls    d1,d4
+        add.l   d4,d3
+        add.l   a4,d3
+        asr.l   d2,d3
+        move.l  d3,(a1)+
+        move.w  12(a2),d3
+        muls    d0,d3
+        move.w  14(a2),d4
+        muls    d1,d4
+        add.l   d4,d3
+        add.l   a5,d3
+        asr.l   d2,d3
+        move.l  d3,(a1)+
+        dbra    d7,xg_lr
+xg_end: movem.l (a7)+,d2-d7/a2-a6
+        rts
+
 ; ---------------------------------------------------------------- xform_pre
 ; int xform_pre(const Camera *c, const Obj *o, s32 dmax, s32 *res)
 ;   Prologo de xform_obj: posicion del objeto respecto a la camara, escala U, descartes por distancia, por esfera
