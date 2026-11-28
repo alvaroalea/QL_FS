@@ -3,6 +3,8 @@
 #include "sound.h"
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
+#include <dirent.h>
 
 extern volatile long plat_tickcnt;     /* ql68k.s, incrementado a 50 Hz */
 void plat_mode4(void);
@@ -147,4 +149,33 @@ void plat_path(char *out, const char *name)
     n = (int)strlen(out);
     while (*name) { out[n++] = (char)(*name == '.' ? '_' : *name); name++; }
     out[n] = 0;
+}
+
+/* ficheros "<nombre>_<ext>" del disco de datos (QDOS devuelve cada nombre con el prefijo de la unidad: "flp1_vuelo1_sav") */
+int plat_list(const char *ext, char names[][10], int max)
+{
+    DIR *d = opendir(plat_dev);
+    struct dirent *de;
+    const char *nm;
+    int n = 0, i, j, len, pl = (int)strlen(plat_dev), el = (int)strlen(ext);
+    char t[10];
+    if (!d) return 0;
+    while (n < max && (de = readdir(d)) != NULL) {
+        nm = de->d_name;
+        for (i = 0; i < pl && nm[i] && tolower((unsigned char)nm[i]) == tolower((unsigned char)plat_dev[i]); i++) ;
+        if (i == pl) nm += pl;
+        len = (int)strlen(nm) - el - 1;
+        if (len < 1 || len > 8 || nm[len] != '_') continue;
+        for (i = 0; i < el && tolower((unsigned char)nm[len + 1 + i]) == tolower((unsigned char)ext[i]); i++) ;
+        if (i != el) continue;
+        for (i = 0; i < len; i++) names[n][i] = (char)toupper((unsigned char)nm[i]);
+        names[n][len] = 0;
+        n++;
+    }
+    closedir(d);
+    for (i = 1; i < n; i++)                                      /* orden alfabetico */
+        for (j = i; j > 0 && strcmp(names[j - 1], names[j]) > 0; j--) {
+            strcpy(t, names[j]); strcpy(names[j], names[j - 1]); strcpy(names[j - 1], t);
+        }
+    return n;
 }

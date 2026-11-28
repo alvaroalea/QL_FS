@@ -27,7 +27,7 @@ El juego se entrega en dos imágenes con el mismo contenido: `qfs.img` (disquete
 | `demo_scn` | Escenario de prueba «Valle del QL» (19 KB). |
 | `planeador_acf`, `mono_acf`, `bimotor_acf`, `reactor_acf` | Los cuatro aviones. Son ficheros de texto que se pueden editar. |
 | `planeador_src`, `mono_src`, `bimotor_src`, `reactor_src` | Fondo del panel de cada avión (formato RAW de de pantalla. |
-| `partida_sav` | Partida guardada con **G** en el menú (aparece al guardar). |
+| `<nombre>_sav` | Partidas guardadas con **G** en el menú, una por nombre (aparecen al guardar). |
 
 ## Cargarlo desde disquete
 
@@ -75,7 +75,7 @@ Cambia `flp1_` por tu unidad en las líneas 110 y 130.
 | «NO SE PUEDE ABRIR EL ESCENARIO» | Falta `iberia_scn` o `demo_scn` en la unidad indicada por `D$`. |
 | «NO SE PUEDE LEER EL AVIÓN» | Falta alguno de los ficheros `*_acf`. |
 | «FALTA EL FICHERO DEL PANEL (.SRC)» | Falta el `*_src` del avión elegido: el panel sale en negro. |
-| «NO SE PUDO GUARDAR / CARGAR LA PARTIDA» | Disco lleno o protegido contra escritura; o `partida_sav` no existe o es de otra versión. |
+| «NO SE PUDO GUARDAR / CARGAR LA PARTIDA» | Disco lleno o protegido contra escritura; o la partida elegida es de otra máquina o versión. |
 | El QL se queda en blanco al ejecutar | Revisa que la línea 130 del `boot` apunte a la unidad correcta. |
 | Los colores salen distintos | Comprueba que el QL está en modo 4 (el `boot` lo hace con `MODE 4`). |
 
@@ -100,8 +100,8 @@ Al arrancar aparece el menú de salida. Todo se maneja con el teclado y se actua
 | **A** / **Mayús+A** | Aeropuerto de salida. |
 | **S** / **Mayús+S** | Tipo de salida: «Continuar vuelo» (solo al volver de un vuelo, y es la opción que queda elegida; si cambias de avión con 1-4, el vuelo continúa con el avión nuevo, en la misma posición y actitud), en pista, en plataforma (la primera plataforma definida en el escenario; si no la tiene, junto a la pista), en vuelo (al azar, al 33 % del techo) o aterrizando. |
 | **D** / **Mayús+D** | En pista: cabecera. Aterrizando: punto de la senda de 3° hacia la pista (a 20 NM, IF a 10 NM, FAF a 5 NM y «en corta final», a 1,5 NM) y, al acabar los de una pista, la siguiente cabecera. El avión sale a velocidad de planeo, con tren y flaps arriba. |
-| **G** | Guarda el vuelo en curso en el disco (`PARTIDA_SAV`). Solo hay vuelo que guardar si se ha vuelto al menú desde uno. |
-| **L** | Carga la partida guardada y sigue volando desde ella. El fichero solo vale en la misma máquina y versión. |
+| **G** | Guarda el vuelo en curso en el disco. Pide un nombre (hasta 8 letras o cifras; **←** borra, **ENTER** guarda, **ESC** cancela) y crea el fichero `<nombre>_sav`. Si ya existe una partida con ese nombre, pregunta si se sobreescribe (**S** sí, **N** no, **ESC** cancela). Solo hay vuelo que guardar si se ha vuelto al menú desde uno. |
+| **L** | Lista en pantalla las partidas guardadas en el disco de datos (por orden alfabético); se elige con **↑** y **↓**, **ENTER** la carga y sigue volando desde ella, **ESC** vuelve al menú. El fichero solo vale en la misma máquina y versión. |
 | **ENTER** | Volar. |
 | **ESC** | Salir al SuperBASIC. |
 

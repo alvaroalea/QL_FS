@@ -27,7 +27,7 @@ The game comes as two images with the same contents: `qfs.img` (720 KB floppy) a
 | `demo_scn` | "QL Valley" test scenery (19 KB). |
 | `planeador_acf`, `mono_acf`, `bimotor_acf`, `reactor_acf` | The four aircraft (glider, single, twin, jet). They are text files that can be edited. |
 | `planeador_src`, `mono_src`, `bimotor_src`, `reactor_src` | Panel background of each aircraft (RAW screen dump format). |
-| `partida_sav` | Saved game, written with **G** in the menu (appears once you save). |
+| `<name>_sav` | Saved games, written with **G** in the menu, one per name (they appear as you save). |
 
 ## Loading from floppy
 
@@ -77,7 +77,7 @@ The simulator's error messages are in Spanish; the English version translates th
 | "NO SE PUEDE ABRIR EL ESCENARIO" (cannot open the scenery) | `iberia_scn` or `demo_scn` is missing on the drive given by `D$`. |
 | "NO SE PUEDE LEER EL AVIÓN" (cannot read the aircraft) | One of the `*_acf` files is missing. |
 | "FALTA EL FICHERO DEL PANEL (.SRC)" (panel file missing) | The `*_src` file of the chosen aircraft is missing: the panel comes out black. |
-| "NO SE PUDO GUARDAR / CARGAR LA PARTIDA" (could not save / load the game) | Disk full or write-protected; or `partida_sav` does not exist or comes from another version. |
+| "NO SE PUDO GUARDAR / CARGAR LA PARTIDA" (could not save / load the game) | Disk full or write-protected; or the chosen saved game comes from another machine or version. |
 | The QL stays blank when running | Check that line 130 of `boot` points to the right drive. |
 | Colours look different | Check that the QL is in mode 4 (`boot` does this with `MODE 4`). |
 
@@ -102,8 +102,8 @@ On start-up the departure menu appears. Everything is controlled from the keyboa
 | **A** / **Shift+A** | Departure airport. |
 | **S** / **Shift+S** | Start type: "Continue flight" (only when returning from a flight, and it is the option left selected; if you change aircraft with 1-4, the flight carries on with the new aircraft, in the same position and attitude), on the runway, on the ramp (the first apron defined in the scenery; if it has none, next to the runway), airborne (random, at 33 % of the ceiling) or landing. |
 | **D** / **Shift+D** | On the runway: threshold. Landing: point on the 3° glide path to the runway (at 20 NM, IF at 10 NM, FAF at 5 NM and "short final", at 1.5 NM) and, after those of one runway, the next threshold. The aircraft starts at gliding speed, with gear and flaps up. |
-| **G** | Saves the current flight to disk (`PARTIDA_SAV`). There is only a flight to save if you came back to the menu from one. |
-| **L** | Loads the saved game and carries on flying from it. The file is only valid on the same machine and version. |
+| **G** | Saves the current flight to disk. It asks for a name (up to 8 letters or digits; **←** deletes, **ENTER** saves, **ESC** cancels) and creates the file `<name>_sav`. If a saved game with that name already exists, it asks whether to overwrite it (**Y** yes, **N** no, **ESC** cancels). There is only a flight to save if you came back to the menu from one. |
+| **L** | Lists the saved games on the data disk on screen (alphabetically); choose one with **↑** and **↓**, **ENTER** loads it and carries on flying from it, **ESC** returns to the menu. The file is only valid on the same machine and version. |
 | **ENTER** | Fly. |
 | **ESC** | Quit to SuperBASIC. |
 

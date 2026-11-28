@@ -22,5 +22,5 @@ Requisitos: QL con 640 KB, disquete de 720 KB o disco win1_ (el escenario ocupa 
 
 Aviso: el programa lo ha escrito una IA, asi que puede haber bugs. No esta basado en la vida real y, por supuesto, no sirve para aprender a pilotar.
 
-Codigo fuente, documentacion y capturas: https://github.com/alvaroalea/ALEA_FS
-Descarga (imagen de disquete, disco win1_ y manual en PDF): https://github.com/alvaroalea/ALEA_FS/releases
+Codigo fuente, documentacion y capturas: https://github.com/alvaroalea/QL_FS
+Descarga (imagen de disquete, disco win1_ y manual en PDF): https://github.com/alvaroalea/QL_FS/releases

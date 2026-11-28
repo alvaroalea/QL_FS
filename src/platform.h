@@ -16,6 +16,7 @@ void  plat_frame(void);           /* fin de cuadro (en PC: volcado de pantalla) 
 void *plat_alloc_hi(long n);      /* memoria de la RAM de expansion (>= $40000, sin contencion con el ZX8301); en PC, malloc */
 long  plat_free_kb(void);         /* KB que quedan en el monton (se prueba con bloques y se liberan); en PC un valor grande fijo */
 void  plat_path(char *out, const char *name);   /* "mono.acf" -> "flp1_mono_acf" */
+int   plat_list(const char *ext, char names[][10], int max);   /* nombres (sin extension, en mayusculas, de 1 a 8 letras) de los ficheros "<nombre>.<ext>" del disco de datos, ordenados; devuelve cuantos */
 
 /* matriz del teclado QL: codigo = fila*8 + bit (KEYROW) - comprobar en QL real */
 #define K(row, bit) ((row) * 8 + (bit))

@@ -243,13 +243,31 @@ static void snap_restore(int newac)
     sim.nsteps = (u32)PHYS_HZ * 6;                   /* sin el rotulo del aeropuerto en la linea de estado */
 }
 
-static int snap_save(void)
+/* Las partidas se guardan con nombre: "<NOMBRE>.sav" (en QDOS NOMBRE_sav), de 1 a 8 letras o cifras. */
+static void snap_path(char *path, const char *name)
+{
+    char fn[24];
+    strcpy(fn, name); strcat(fn, ".sav");
+    plat_path(path, fn);
+}
+
+static int snap_exists(const char *name)
+{
+    char path[48];
+    FILE *fp;
+    snap_path(path, name);
+    fp = fopen(path, "rb");
+    if (fp) fclose(fp);
+    return fp != NULL;
+}
+
+static int snap_save(const char *name)
 {
     char path[48];
     FILE *fp;
     int ok;
     if (!sim_snap_ok) return 0;
-    plat_path(path, "partida.sav");
+    snap_path(path, name);
     fp = fopen(path, "wb");
     if (!fp) return 0;
     ok = fwrite(&sim_snap, sizeof(Snap), 1, fp) == 1;
@@ -257,13 +275,13 @@ static int snap_save(void)
     return ok;
 }
 
-static int snap_load(void)                        /* 1 = hay partida valida y queda en sim_snap */
+static int snap_load(const char *name)            /* 1 = hay partida valida y queda en sim_snap */
 {
     static Snap t;
     char path[48];
     FILE *fp;
     int ok;
-    plat_path(path, "partida.sav");
+    snap_path(path, name);
     fp = fopen(path, "rb");
     if (!fp) return 0;
     ok = fread(&t, sizeof(Snap), 1, fp) == 1 && t.magic == SNAP_MAGIC && t.size == sizeof(Snap) &&
@@ -883,6 +901,15 @@ static void menu_open(const char *name)
     if (!world_open(&mw, path)) { mw.napt = 0; world_close(&mw); }
 }
 
+/* teclas con letra o cifra, para escribir el nombre de una partida */
+static const u8 ch_key[36] = { KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J, KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q,
+                               KEY_R, KEY_S, KEY_T, KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z, KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6,
+                               KEY_7, KEY_8, KEY_9 };
+static const char ch_chr[37] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+#define SV_MAX 40
+#define SV_ROWS 12
+static char sv_list[SV_MAX][10];                  /* partidas del disco (pantalla de cargar) */
+
 int sim_menu(char *acf, char *scn, int *hour)
 {
     static const char *names[4] = { "planeador.acf", "mono.acf", "bimotor.acf", "reactor.acf" };
@@ -895,6 +922,8 @@ int sim_menu(char *acf, char *scn, int *hour)
     const char *msg = "";
     Surface s;
     int i, k, done = 0, dirty = 1, o_sel, o_hour, o_esc, o_apt, o_mode, o_rwy, o_pt, n;
+    int dlg = 0, sv_len = 0, nlist = 0, lsel = 0, ltop = 0;      /* dlg: 0 menu, 1 nombre al guardar, 2 sobreescribir?, 3 lista al cargar */
+    char sv_name[10];
     char b[64];
     u8 *scr = plat_screen();
     gfx_init_surface(&s, scr, SCR_H);
@@ -908,6 +937,56 @@ int sim_menu(char *acf, char *scn, int *hour)
     if (apt >= mw.napt) apt = 0;
     while (!done) {
         read_keys(1);
+        if (dlg) {                                                  /* pantallas de guardar y cargar */
+            if (hit(KEY_ESC)) { dlg = 0; msg = ""; }
+            else if (dlg == 1) {
+                for (k = 0; k < 36; k++)
+                    if (hit(ch_key[k]) && sv_len < 8) { sv_name[sv_len++] = ch_chr[k]; sv_name[sv_len] = 0; dirty = 1; }
+                if (hit(KEY_LEFT) && sv_len > 0) { sv_name[--sv_len] = 0; dirty = 1; }
+                if (hit(KEY_ENTER) && sv_len > 0) {
+                    if (snap_exists(sv_name)) dlg = 2;
+                    else { msg = snap_save(sv_name) ? S_SAVED : S_SAVE_FAIL; dlg = 0; }
+                    dirty = 1;
+                }
+            } else if (dlg == 2) {
+                if (hit(KEY_S) || hit(KEY_Y)) { msg = snap_save(sv_name) ? S_SAVED : S_SAVE_FAIL; dlg = 0; }
+                else if (hit(KEY_N)) { dlg = 1; dirty = 1; }
+            } else {
+                if (hit(KEY_UP) && lsel > 0) { lsel--; dirty = 1; }
+                if (hit(KEY_DOWN) && lsel < nlist - 1) { lsel++; dirty = 1; }
+                if (hit(KEY_ENTER)) {
+                    dlg = 0;
+                    if (snap_load(sv_list[lsel])) { sel = sim_snap.sel; esc = sim_snap.esc; mode = START_CONT; done = 1; menu_open(scns[esc]); }
+                    else msg = S_LOAD_FAIL;
+                }
+            }
+            if (lsel < ltop) ltop = lsel;
+            if (lsel >= ltop + SV_ROWS) ltop = lsel - SV_ROWS + 1;
+            if (!dlg) { dirty = 1; plat_frame(); continue; }        /* se vuelve al menu (o se sale con la partida cargada) sin mirar mas teclas este cuadro */
+            if (dirty) {
+                dirty = 0;
+                gfx_clear(&s, fill_tab[F_BLACK]);
+                if (dlg == 3) {
+                    gfx_text(&s, 60, 20, S_LOAD_TITLE, C_WHITE);
+                    gfx_text(&s, 60, 30, S_MENU_RULE, C_RED);
+                    for (i = ltop; i < nlist && i < ltop + SV_ROWS; i++) gfx_text(&s, 80, 56 + (i - ltop) * 12, sv_list[i], i == lsel ? C_GREEN : C_WHITE);
+                    gfx_text(&s, 60, 228, S_LOAD_HELP, C_GREEN);
+                } else {
+                    gfx_text(&s, 60, 20, S_SAVE_TITLE, C_WHITE);
+                    gfx_text(&s, 60, 30, S_MENU_RULE, C_RED);
+                    u_cpy(b, S_SAVE_NAME, 40); u_cat(b, sv_name, 40); if (dlg == 1) u_cat(b, "_", 40);
+                    gfx_text(&s, 60, 60, b, C_GREEN);
+                    if (dlg == 2) {
+                        gfx_text(&s, 60, 90, S_OVERWRITE, C_RED);
+                        gfx_text(&s, 60, 110, S_YESNO, C_WHITE);
+                    } else {
+                        gfx_text(&s, 60, 228, S_SAVE_HELP, C_GREEN);
+                    }
+                }
+            }
+            plat_frame();
+            continue;
+        }
         o_sel = sel; o_hour = *hour; o_esc = esc; o_apt = apt; o_mode = mode; o_rwy = rwy; o_pt = pt;
         if (hit(KEY_1)) sel = 0;
         if (hit(KEY_2)) sel = 1;
@@ -930,12 +1009,15 @@ int sim_menu(char *acf, char *scn, int *hour)
             else if (++pt >= LAND_PTS) { pt = 0; rwy = (rwy + 1) % n; }
         }
         if (hit(KEY_G)) {
-            msg = !sim_snap_ok ? S_NO_FLIGHT : (snap_save() ? S_SAVED : S_SAVE_FAIL);
+            if (!sim_snap_ok) msg = S_NO_FLIGHT;
+            else { dlg = 1; sv_len = 0; sv_name[0] = 0; }
             dirty = 1;
         }
         if (hit(KEY_L)) {
-            if (snap_load()) { sel = sim_snap.sel; esc = sim_snap.esc; mode = START_CONT; done = 1; menu_open(scns[esc]); }
-            else { msg = S_LOAD_FAIL; dirty = 1; }
+            nlist = plat_list("sav", sv_list, SV_MAX);
+            if (nlist > 0) { dlg = 3; lsel = ltop = 0; }
+            else msg = S_NO_SAVES;
+            dirty = 1;
         }
         if (hit(KEY_ENTER)) done = 1;
         if (hit(KEY_ESC)) { world_close(&mw); return 0; }
